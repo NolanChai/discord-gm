@@ -44,3 +44,65 @@
 2025-03-07 08:06:33,685 - discord.client - WARNING - PyNaCl is not installed, voice will NOT be supported
 2025-03-07 08:06:33,685 - discord.client - INFO - logging in using static token
 2025-03-07 08:06:34,410 - discord.gateway - INFO - Shard ID None has connected to Gateway (Session ID: 3060f62f3e81976f280f43754509c329).
+2025-03-07 08:09:06,631 - lachesis - INFO - Initializing managers and clients...
+2025-03-07 08:09:06,631 - lachesis.function_dispatcher - INFO - Registered function: start_adventure
+2025-03-07 08:09:06,631 - lachesis.function_dispatcher - INFO - Registered function: create_character
+2025-03-07 08:09:06,631 - lachesis.function_dispatcher - INFO - Registered function: update_character
+2025-03-07 08:09:06,631 - lachesis.function_dispatcher - INFO - Registered function: execute_script
+2025-03-07 08:09:06,631 - lachesis.function_dispatcher - INFO - Registered function: continue_adventure
+2025-03-07 08:09:06,631 - lachesis.function_dispatcher - INFO - Registered function: display_profile
+2025-03-07 08:09:06,631 - lachesis - INFO - Starting Discord bot...
+2025-03-07 08:09:06,631 - discord.client - WARNING - PyNaCl is not installed, voice will NOT be supported
+2025-03-07 08:09:06,631 - discord.client - INFO - logging in using static token
+2025-03-07 08:09:07,345 - discord.gateway - INFO - Shard ID None has connected to Gateway (Session ID: 78fdcd002b5aaf78fd2b2027fb3fa116).
+2025-03-07 08:09:16,174 - lachesis.llm - ERROR - Error in LLM request: None/completions
+2025-03-07 08:09:51,165 - lachesis - INFO - Initializing managers and clients...
+2025-03-07 08:09:51,165 - lachesis.function_dispatcher - INFO - Registered function: start_adventure
+2025-03-07 08:09:51,165 - lachesis.function_dispatcher - INFO - Registered function: create_character
+2025-03-07 08:09:51,165 - lachesis.function_dispatcher - INFO - Registered function: update_character
+2025-03-07 08:09:51,165 - lachesis.function_dispatcher - INFO - Registered function: execute_script
+2025-03-07 08:09:51,165 - lachesis.function_dispatcher - INFO - Registered function: continue_adventure
+2025-03-07 08:09:51,165 - lachesis.function_dispatcher - INFO - Registered function: display_profile
+2025-03-07 08:09:51,165 - lachesis - INFO - Starting Discord bot...
+2025-03-07 08:09:51,165 - discord.client - WARNING - PyNaCl is not installed, voice will NOT be supported
+2025-03-07 08:09:51,165 - discord.client - INFO - logging in using static token
+2025-03-07 08:09:51,876 - discord.gateway - INFO - Shard ID None has connected to Gateway (Session ID: 91085cb8b83e577336d512766b81bb9e).
+2025-03-07 08:09:56,202 - lachesis.llm - ERROR - Error in LLM request: Cannot connect to host localhost:1234 ssl:default [Multiple exceptions: [Errno 61] Connect call failed ('127.0.0.1', 1234), [Errno 61] Connect call failed ('::1', 1234, 0, 0)]
+2025-03-07 08:09:56,203 - lachesis.function_dispatcher - WARNING - Unknown function: failed
+2025-03-07 08:10:13,191 - lachesis - INFO - Initializing managers and clients...
+2025-03-07 08:10:13,191 - lachesis.function_dispatcher - INFO - Registered function: start_adventure
+2025-03-07 08:10:13,191 - lachesis.function_dispatcher - INFO - Registered function: create_character
+2025-03-07 08:10:13,191 - lachesis.function_dispatcher - INFO - Registered function: update_character
+2025-03-07 08:10:13,191 - lachesis.function_dispatcher - INFO - Registered function: execute_script
+2025-03-07 08:10:13,191 - lachesis.function_dispatcher - INFO - Registered function: continue_adventure
+2025-03-07 08:10:13,191 - lachesis.function_dispatcher - INFO - Registered function: display_profile
+2025-03-07 08:10:13,191 - lachesis - INFO - Starting Discord bot...
+2025-03-07 08:10:13,191 - discord.client - WARNING - PyNaCl is not installed, voice will NOT be supported
+2025-03-07 08:10:13,191 - discord.client - INFO - logging in using static token
+2025-03-07 08:10:13,906 - discord.gateway - INFO - Shard ID None has connected to Gateway (Session ID: 73d0b3d6afbc8fc414193ff34b4ad2eb).
+2025-03-07 08:10:44,746 - lachesis - INFO - Initializing managers and clients...
+2025-03-07 08:10:44,746 - lachesis.function_dispatcher - INFO - Registered function: start_adventure
+2025-03-07 08:10:44,746 - lachesis.function_dispatcher - INFO - Registered function: create_character
+2025-03-07 08:10:44,746 - lachesis.function_dispatcher - INFO - Registered function: update_character
+2025-03-07 08:10:44,746 - lachesis.function_dispatcher - INFO - Registered function: execute_script
+2025-03-07 08:10:44,746 - lachesis.function_dispatcher - INFO - Registered function: continue_adventure
+2025-03-07 08:10:44,746 - lachesis.function_dispatcher - INFO - Registered function: display_profile
+2025-03-07 08:10:44,746 - lachesis - INFO - Starting Discord bot...
+2025-03-07 08:10:44,747 - discord.client - WARNING - PyNaCl is not installed, voice will NOT be supported
+2025-03-07 08:10:44,747 - discord.client - INFO - logging in using static token
+2025-03-07 08:10:45,423 - discord.gateway - INFO - Shard ID None has connected to Gateway (Session ID: 518d5fbadd4d1455bb4c4b0b01ed09d1).
+2025-03-07 08:11:11,722 - lachesis.function_dispatcher - INFO - Dispatching function: start_adventure with args: {}
+2025-03-07 08:11:12,040 - lachesis.state_manager - INFO - User 135882546440306688 state set to: character_creation
+2025-03-07 08:11:50,158 - lachesis - INFO - Initializing managers and clients...
+2025-03-07 08:11:50,158 - lachesis.function_dispatcher - INFO - Registered function: start_adventure
+2025-03-07 08:11:50,158 - lachesis.function_dispatcher - INFO - Registered function: create_character
+2025-03-07 08:11:50,158 - lachesis.function_dispatcher - INFO - Registered function: update_character
+2025-03-07 08:11:50,158 - lachesis.function_dispatcher - INFO - Registered function: execute_script
+2025-03-07 08:11:50,158 - lachesis.function_dispatcher - INFO - Registered function: continue_adventure
+2025-03-07 08:11:50,158 - lachesis.function_dispatcher - INFO - Registered function: display_profile
+2025-03-07 08:11:50,158 - lachesis - INFO - Starting Discord bot...
+2025-03-07 08:11:50,158 - discord.client - WARNING - PyNaCl is not installed, voice will NOT be supported
+2025-03-07 08:11:50,158 - discord.client - INFO - logging in using static token
+2025-03-07 08:11:50,854 - discord.gateway - INFO - Shard ID None has connected to Gateway (Session ID: e45680976d9203baf830aac0f1a8123d).
+2025-03-07 08:12:17,694 - lachesis.function_dispatcher - INFO - Dispatching function: start_adventure with args: {}
+2025-03-07 08:12:17,979 - lachesis.state_manager - INFO - User 135882546440306688 state set to: character_creation

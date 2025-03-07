@@ -35,7 +35,7 @@ async def main():
     # Load environment variables
     load_dotenv()
     discord_token = os.getenv("DISCORD_BOT_TOKEN")
-    llm_api_base = os.getenv("LLM_API_BASE")
+    llm_api_base = os.getenv("LM_API_BASE", "http://localhost:1234/v1")
     model_name = os.getenv("MODEL_NAME", "mistral-7b-instruct")
     
     if not discord_token:

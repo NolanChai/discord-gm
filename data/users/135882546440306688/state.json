@@ -1,6 +1,8 @@
 {
-  "state": "menu",
+  "state": "character_creation",
   "metadata": {
-    "last_channel_id": "1302145758811783199"
+    "last_channel_id": "1302145758811783199",
+    "creation_step": "name",
+    "character_data": {}
   }
 }

@@ -25,10 +25,10 @@ class MessageDelayManager:
         self.typing_speed = 50
         
         # Delay constants
-        self.min_typing_delay = 0.5
-        self.max_typing_delay = 5.0
-        self.min_segment_delay = 0.5
-        self.max_segment_delay = 3.0
+        self.min_typing_delay = 0.1
+        self.max_typing_delay = 2.0
+        self.min_segment_delay = 0.1
+        self.max_segment_delay = 1.5
         
         # For emotion-based timing variations
         self.emotion_modifiers = {
