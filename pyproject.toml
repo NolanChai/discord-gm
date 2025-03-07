@@ -6,6 +6,6 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "discord-py>=2.5.2",
-    "openai>=1.65.4",
+    "openai==0.28.1",
     "python-dotenv>=1.0.1",
 ]
