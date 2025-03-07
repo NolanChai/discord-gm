@@ -1,0 +1,47 @@
+# Lachesis Discord Bot - Project Structure
+
+```
+lachesis_bot/
+├── main.py                    # Main entry point
+├── .env                       # Environment variables
+├── README.md                  # Documentation
+├── requirements.txt           # Dependencies
+├── data/                      # Data storage directory
+│   ├── users/                 # User-specific data
+│   │   └── {user_id}/         # Individual user folders
+│   │       ├── profile.json   # Character sheet and profile data
+│   │       ├── memory.json    # Long-term memories
+│   │       └── state.json     # Current state data
+│   ├── adventures/            # Adventure templates and data
+│   └── system/                # System configuration
+│       └── prompts.json       # System prompts for different states
+├── src/                       # Source code
+│   ├── bot/                   # Bot core
+│   │   ├── __init__.py
+│   │   ├── discord_client.py  # Discord client setup
+│   │   ├── commands.py        # Command handlers
+│   │   └── events.py          # Event handlers
+│   ├── llm/                   # LLM integration
+│   │   ├── __init__.py
+│   │   ├── client.py          # OpenAI client wrapper
+│   │   └── prompts.py         # Prompt building functions
+│   ├── managers/              # Data managers
+│   │   ├── __init__.py
+│   │   ├── profile_manager.py # User profile management
+│   │   ├── memory_manager.py  # Memory management
+│   │   ├── state_manager.py   # State management
+│   │   └── adventure_manager.py # Adventure management
+│   ├── utils/                 # Utility functions
+│   │   ├── __init__.py
+│   │   ├── file_utils.py      # File operations
+│   │   ├── text_utils.py      # Text processing
+│   │   └── function_dispatcher.py # Function call handling
+│   └── models/                # Data models
+│       ├── __init__.py
+│       ├── profile.py         # Profile data model
+│       ├── memory.py          # Memory data model
+│       └── state.py           # State data model
+└── tests/                     # Tests
+    ├── __init__.py
+    └── test_*.py              # Test modules
+```
