@@ -10,5 +10,10 @@
     "inventory": []
   },
   "dynamic_attributes": {},
-  "long_term_memories": []
+  "long_term_memories": [
+    {
+      "timestamp": "2025-03-07 03:55:28",
+      "summary": "* Game state summary:\n  - A new adventurer named Nolan is being created.\n  - The player has been asked to choose a race for their character.\n  - Human, elf, dwarf and other races have been mentioned as options.\n  - No decisions have been made yet regarding the character's race or starting attributes."
+    }
+  ]
 }

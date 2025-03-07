@@ -12,26 +12,20 @@ class ProfileManager:
         return os.path.join(self.base_folder, f"{user_id}_profile.json")
 
     def load_profile(self, user_id: str) -> dict:
-        """Load or create a profile for a user."""
         path = self.get_profile_path(user_id)
         if os.path.exists(path):
             with open(path, "r", encoding="utf-8") as f:
                 return json.load(f)
         else:
-            # Return a default new user profile
             return {
                 "character_sheet": {
                     "name": "",
                     "race": "",
                     "class": "",
-                    "stats": {},   # e.g. STR, DEX, etc.
+                    "stats": {}
                 },
-                "dm_notes": {
-                    "story_arcs": [],
-                    "inventory": [],
-                },
-                "dynamic_attributes": {},  # mood, environment, etc.
-                "long_term_memories": [],  # store summarized older convos
+                "dynamic_attributes": {},
+                "long_term_memories": []
             }
 
     def save_profile(self, user_id: str, data: dict):

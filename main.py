@@ -1,5 +1,3 @@
-# main.py
-
 import os
 import random
 import asyncio
@@ -13,6 +11,7 @@ import openai
 
 from profile_manager import ProfileManager
 from memory_manager import MemoryManager, force_lowercase_minimal, remove_stage_directions
+from function_dispatcher import extract_function_call
 
 # ----------------------------
 # 1. Load Environment Variables
@@ -29,8 +28,7 @@ STOP_STRINGS = [os.getenv("STOP_STRINGS", "<|im_end|>")]
 if not DISCORD_TOKEN:
     raise ValueError("Missing DISCORD_BOT_TOKEN in environment variables!")
 
-# For local LM or OpenAI usage
-openai.api_key = "None"  # Not used if local
+openai.api_key = "None"  # Not used for local LM Studio
 openai.api_base = LM_API_BASE
 
 # ----------------------------
@@ -46,286 +44,198 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 profile_manager = ProfileManager()
 memory_manager = MemoryManager()
 
-# We also track inactivity times per user
-user_inactivity = {}  # user_id -> datetime of last message
+# For inactivity tracking per user
+user_inactivity = {}  # user_id -> datetime
 INACTIVITY_THRESHOLD_MINUTES = 15
 
 # ----------------------------
-# 4. Utility / Outline
+# 4. Utility Functions
 # ----------------------------
-
-def format_prompt(user_id: str) -> str:
-    """
-    Construct a ChatML style prompt for Lachesis (the DM).
-    We'll gather:
-      - short-term conversation
-      - relevant memories (RAG)
-      - user’s character sheet
-      - system instructions
-    """
-    # Prepare system content
+def build_system_prompt(user_id: str) -> str:
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M")
     short_term = memory_manager.get_short_term_history(user_id)
-    
-    # Last user message to do naive retrieval
     user_text = ""
     for role, txt in reversed(short_term):
         if role == "user":
             user_text = txt
             break
-    
-    # RAG from user's memories
-    relevant_memories = memory_manager.get_relevant_memories(user_id, user_text, profile_manager, top_k=3)
-    relevant_text = "\n".join([f"- {m}" for m in relevant_memories])
 
-    # Get user's profile
+    # Get long-term memories (if any)
     profile = profile_manager.load_profile(user_id)
-    char_sheet = profile["character_sheet"]
-    dynamic = profile["dynamic_attributes"]
+    memories = profile.get("long_term_memories", [])
+    memories_text = "\n".join([f"- {m.get('summary', '')}" for m in memories])
 
-    # Create a summary of the user's character for the system prompt
-    char_info = (
-        f"Character Name: {char_sheet.get('name', '')}\n"
-        f"Race: {char_sheet.get('race', '')}\n"
-        f"Class: {char_sheet.get('class', '')}\n"
-        f"Stats: {char_sheet.get('stats', {})}\n"
+    # Prepare the available functions list for the LLM
+    available_functions = (
+        "Available functions:\n"
+        "1. start_game(user_id, mentions): start a new game session\n"
+        "2. create_character(user_id): initiate a character creation conversation\n"
+        "3. update_character(user_id, field, value): update a character sheet field\n"
+        "4. execute_script(script_name, args): run a local script\n"
+        "5. continue_adventure(user_id): continue the ongoing adventure\n"
     )
 
-    # Lachesis's role + style instructions
+    # Updated personality instructions:
     system_instructions = (
-        f"You are Lachesis, a Dungeon Master with a slightly playful, friendly personality. "
-        f"You keep track of the story arcs, player characters, and rules. "
-        f"Speak to the user in a warm, engaging tone, with creative storytelling flair. "
-        f"Date/Time: {current_time}.\n\n"
-        "If the user requests character creation, walk them through questions about their name, race, class, stats.\n"
-        "If multiple users are present, coordinate their character sheets.\n"
-        "Keep track of arcs, storylines, and relevant details in your memory system. "
-        "Answer in a style that includes some creative detail and mild humor, but remain concise.\n\n"
-        f"Relevant past info:\n{relevant_text}\n\n"
-        f"User's Character Sheet:\n{char_info}\n"
-        f"Dynamic attributes: {dynamic}\n"
+        f"You are Lachesis, one of the three weavers of destiny, a mysterious guide who leads adventurers on epic quests. "
+        f"Today's date/time: {current_time}.\n\n"
+        "When a user greets you or pings you, first ask them what their intent is rather than immediately starting a process. "
+        "If they imply a desire to create a character, ask if they'd like to create one, and then proceed with a guided conversation. \n\n"
+        "Use markdown formatting in your replies (for example, use headers, bullet lists, and code blocks if needed) and preserve proper capitalization. \n\n"
+        "User's Character Sheet:\n"
+        f"```json\n{profile['character_sheet']}\n```\n\n"
+        "Dynamic Attributes:\n"
+        f"```json\n{profile['dynamic_attributes']}\n```\n\n"
+        "Relevant Memories:\n"
+        f"{memories_text}\n\n"
+        f"{available_functions}\n\n"
+        "When replying, if the user's message implies an action (like starting a game or creating a character), output a JSON object "
+        "wrapped in `<|function_call|>` and `<|end_function_call|>` with the key 'name' for the function name and an 'args' object for parameters. "
+        "Otherwise, simply output a plain text reply that is split into multiple segments (if long) using double newlines."
     )
 
-    # Build the ChatML style prompt
     prompt = f"<|im_start|>system\n{system_instructions}\n<|im_end|>\n"
     for role, content in short_term:
         prompt += f"<|im_start|>{role}\n{content}\n<|im_end|>\n"
     prompt += "<|im_start|>assistant\n"
-
     return prompt
 
+
+async def dispatch_function_call(func_call: dict, message: discord.Message, user_id: str):
+    """
+    Based on the function call, run the corresponding function.
+    """
+    func_name = func_call.get("name")
+    args = func_call.get("args", {})
+
+    if func_name == "start_game":
+        await start_game(user_id, message.channel, args)
+    elif func_name == "create_character":
+        await create_character(user_id, message.channel)
+    elif func_name == "update_character":
+        field = args.get("field")
+        value = args.get("value")
+        profile_manager.update_character_sheet(user_id, {field: value})
+        await message.channel.send(f"Updated your {field} to {value}.")
+    elif func_name == "execute_script":
+        script_name = args.get("script_name")
+        # Here you can implement local script execution
+        await message.channel.send(f"Executed script: {script_name}.")
+    elif func_name == "continue_adventure":
+        await message.channel.send("Continuing the adventure...")
+    else:
+        await message.channel.send("I'm not sure how to handle that action.")
+
+async def start_game(user_id: str, channel: discord.TextChannel, args: dict):
+    # For instance, initialize game data for this user and others if provided
+    mentions = args.get("mentions", [])
+    await channel.send(f"Game is starting for <@{user_id}> and {', '.join(mentions)}! Let's get ready for an epic quest!")
+    # Optionally, you might want to trigger character creation for users without a character
+    profile = profile_manager.load_profile(user_id)
+    if not profile["character_sheet"]["name"]:
+        await channel.send(f"Hey <@{user_id}>, let's create your character. I'll guide you through it shortly.")
+
+async def create_character(user_id: str, channel: discord.TextChannel):
+    # A conversational character creation sequence handled by the LLM.
+    # Here, we might send a prompt to the LLM asking questions.
+    await channel.send(f"Hey <@{user_id}>, let's create your character! What is your character's name?")
+    # In a full implementation, you could wait for the user response and then call the LLM again
+    # to ask follow-up questions and ultimately update the character sheet.
+
+# ----------------------------
+# 5. Periodic Tasks (Inactivity, etc.)
+# ----------------------------
 async def handle_inactivity_check():
-    """
-    Periodically check each user's inactivity.
-    If they've been inactive, maybe DM them or do something creative.
-    """
     now = datetime.now()
     for user_id, last_time in user_inactivity.items():
-        delta = now - last_time
-        if delta > timedelta(minutes=INACTIVITY_THRESHOLD_MINUTES):
-            # Example: DM them a nudge
+        if now - last_time > timedelta(minutes=INACTIVITY_THRESHOLD_MINUTES):
             user = await bot.fetch_user(int(user_id))
             if user:
                 try:
-                    nudge_msg = f"Hey <@{user_id}>, you still around? We can continue whenever you're ready!"
-                    await user.send(nudge_msg)
-                    # And we can store that in the short-term memory for context
-                    memory_manager.add_to_short_term(user_id, "assistant", nudge_msg)
+                    msg = f"Hey <@{user_id}>, are you still with us? Let me know when you're ready to continue our adventure!"
+                    await user.send(msg)
+                    memory_manager.add_to_short_term(user_id, "assistant", msg)
                 except Exception as e:
                     print(f"Error DMing user {user_id}: {e}")
 
 @tasks.loop(minutes=2)
 async def periodic_tasks():
-    """
-    This will run every 2 minutes in the background.
-    Handle inactivity checks, random events, etc.
-    """
     await handle_inactivity_check()
 
 # ----------------------------
-# 5. Bot Commands
-# ----------------------------
-
-@bot.command(name="status")
-async def status_command(ctx):
-    """
-    Check your own status (like short summary of your character).
-    """
-    user_id = str(ctx.author.id)
-    profile = profile_manager.load_profile(user_id)
-    char_sheet = profile["character_sheet"]
-    dynamic = profile["dynamic_attributes"]
-    ltm_count = len(profile["long_term_memories"])
-
-    msg = (
-        f"**Your Character**\n"
-        f"Name: {char_sheet.get('name', '')}\n"
-        f"Race: {char_sheet.get('race', '')}\n"
-        f"Class: {char_sheet.get('class', '')}\n"
-        f"Stats: {char_sheet.get('stats', {})}\n\n"
-        f"**Dynamic Attributes:** {dynamic}\n"
-        f"**Long-Term Memories:** {ltm_count} stored.\n"
-    )
-    await ctx.send(msg)
-
-@bot.command(name="start_game")
-async def start_game(ctx, *args):
-    """
-    Example command to start a new game with multiple participants.
-    Usage: !start_game @User1 @User2
-    """
-    # Get all mention IDs except the bot
-    participants = [m for m in ctx.message.mentions if m != bot.user]
-    if not participants:
-        await ctx.send("No participants mentioned! Usage: `!start_game @User1 @User2`")
-        return
-
-    # Initialize each participant's profile
-    for p in participants:
-        user_id = str(p.id)
-        profile = profile_manager.load_profile(user_id)
-        # If they have no name, let's prompt them to fill out their sheet
-        if not profile["character_sheet"]["name"]:
-            await ctx.send(f"Hey <@{user_id}>, let's create your character sheet! Type `!create_character` to begin.")
-        else:
-            await ctx.send(f"Looks like <@{user_id}> already has a character: {profile['character_sheet']['name']}")
-    await ctx.send("Game has started! Everyone has been initialized. Feel free to ask me about the storyline now.")
-
-@bot.command(name="create_character")
-async def create_character(ctx):
-    """
-    This command triggers a conversation to fill out the user’s character sheet.
-    We'll ask them a series of questions. We'll do this interactively.
-    """
-    user_id = str(ctx.author.id)
-    channel = ctx.channel
-
-    profile = profile_manager.load_profile(user_id)
-    char_sheet = profile["character_sheet"]
-
-    def check(m):
-        # Only accept replies from the same user in the same channel
-        return m.author == ctx.author and m.channel == channel
-
-    # Ask for character name
-    if not char_sheet.get("name"):
-        await ctx.send("What is your character's name?")
-        try:
-            msg = await bot.wait_for('message', check=check, timeout=60)
-            char_sheet["name"] = msg.content.strip()
-            profile_manager.update_character_sheet(user_id, {"name": char_sheet["name"]})
-            await ctx.send(f"Great! Your character is now named **{char_sheet['name']}**.")
-        except asyncio.TimeoutError:
-            await ctx.send("You took too long to respond. Type `!create_character` again to continue.")
-            return
-    
-    # Ask for race
-    if not char_sheet.get("race"):
-        await ctx.send("What race is your character? e.g. Elf, Human, Dwarf, etc.")
-        try:
-            msg = await bot.wait_for('message', check=check, timeout=60)
-            char_sheet["race"] = msg.content.strip()
-            profile_manager.update_character_sheet(user_id, {"race": char_sheet["race"]})
-            await ctx.send(f"Your character's race is now **{char_sheet['race']}**.")
-        except asyncio.TimeoutError:
-            await ctx.send("You took too long to respond.")
-            return
-
-    # Ask for class
-    if not char_sheet.get("class"):
-        await ctx.send("What class is your character? e.g. Warrior, Rogue, Wizard, etc.")
-        try:
-            msg = await bot.wait_for('message', check=check, timeout=60)
-            char_sheet["class"] = msg.content.strip()
-            profile_manager.update_character_sheet(user_id, {"class": char_sheet["class"]})
-            await ctx.send(f"Your character's class is now **{char_sheet['class']}**.")
-        except asyncio.TimeoutError:
-            await ctx.send("You took too long to respond.")
-            return
-
-    # Ask for stats (STR, DEX, etc.) – for brevity, just do 1 or 2
-    if not char_sheet.get("stats"):
-        await ctx.send("Let's assign some basic stats. e.g. STR=10, DEX=12, etc. Type them in format: STR=10, DEX=12")
-        try:
-            msg = await bot.wait_for('message', check=check, timeout=60)
-            input_str = msg.content.strip()
-            # Very naive parse: "STR=10, DEX=12" -> dict
-            stats = {}
-            for part in input_str.split(","):
-                kv = part.strip().split("=")
-                if len(kv) == 2:
-                    key = kv[0].strip().upper()
-                    val = kv[1].strip()
-                    stats[key] = val
-            char_sheet["stats"] = stats
-            profile_manager.update_character_sheet(user_id, {"stats": stats})
-            await ctx.send(f"Stats have been set: {stats}")
-        except asyncio.TimeoutError:
-            await ctx.send("You took too long to respond.")
-            return
-
-    await ctx.send("Character creation complete! Type `!status` to check your data anytime.")
-
-# ----------------------------
-# 6. The On-Message Event
+# 6. Bot Events & Message Handling
 # ----------------------------
 @bot.event
+@bot.event
 async def on_message(message):
-    # Process commands first
+    # Process commands (if any)
     await bot.process_commands(message)
-    if message.author == bot.user:
-        return
-    if not message.content:
+    if message.author == bot.user or not message.content:
         return
 
     user_id = str(message.author.id)
     content = message.content.strip()
-    
-    # Update last activity time
     user_inactivity[user_id] = datetime.now()
-
-    # Add user message to short-term memory
     memory_manager.add_to_short_term(user_id, "user", content)
     memory_manager.trim_and_summarize_if_needed(user_id, profile_manager)
 
-    # If the message mentions the bot or is in a direct channel, respond
-    # e.g., check if the bot is mentioned
-    if bot.user in message.mentions or isinstance(message.channel, discord.DMChannel):
-        try:
-            # Build the prompt
-            prompt = format_prompt(user_id)
-            # Call the model
-            async with message.channel.typing():
-                response = openai.Completion.create(
-                    model=MODEL_NAME,
-                    prompt=prompt,
-                    temperature=TEMPERATURE,
-                    max_tokens=300,
-                    top_p=TOP_P,
-                    stop=STOP_STRINGS
-                )
-            
-            bot_reply = response.choices[0].text.strip()
-            bot_reply = remove_stage_directions(bot_reply)
-            bot_reply = force_lowercase_minimal(bot_reply)
+    # Build the prompt (including function instructions) for the LLM.
+    prompt = build_system_prompt(user_id)
 
-            # Add to memory
-            memory_manager.add_to_short_term(user_id, "assistant", bot_reply)
-            memory_manager.trim_and_summarize_if_needed(user_id, profile_manager)
+    try:
+        async with message.channel.typing():
+            response = openai.Completion.create(
+                model=MODEL_NAME,
+                prompt=prompt,
+                temperature=TEMPERATURE,
+                max_tokens=300,
+                top_p=TOP_P,
+                stop=STOP_STRINGS
+            )
+        full_response = response.choices[0].text.strip()
+        # Check if the LLM wants to call a function.
+        func_call = extract_function_call(full_response)
+        if func_call:
+            await dispatch_function_call(func_call, message, user_id)
+        else:
+            # Process plain text reply:
+            reply = remove_stage_directions(full_response)
+            # Split into multiple segments on double newlines:
+            segments = [seg.strip() for seg in reply.split("\n\n") if seg.strip()]
+            for seg in segments:
+                memory_manager.add_to_short_term(user_id, "assistant", seg)
+                memory_manager.trim_and_summarize_if_needed(user_id, profile_manager)
+                await message.channel.send(seg)
+    except Exception as e:
+        print(f"Error generating response: {e}")
+        await message.channel.send("Oops, something went wrong. Please try again later.")
 
-            await message.channel.send(bot_reply)
+# ----------------------------
+# 7. Bot Commands (Optional Fallbacks)
+# ----------------------------
+@bot.command(name="status")
+async def status_command(ctx):
+    user_id = str(ctx.author.id)
+    profile = profile_manager.load_profile(user_id)
+    char_sheet = profile["character_sheet"]
+    dynamic = profile["dynamic_attributes"]
+    ltm_count = len(profile.get("long_term_memories", []))
+    await ctx.send(
+        f"**Your Character**\nName: {char_sheet.get('name', 'Not set')}\n"
+        f"Race: {char_sheet.get('race', 'Not set')}\n"
+        f"Class: {char_sheet.get('class', 'Not set')}\n"
+        f"Stats: {char_sheet.get('stats', {})}\n\n"
+        f"**Dynamic Attributes:** {dynamic}\n"
+        f"**Long-Term Memories:** {ltm_count} stored."
+    )
 
-        except Exception as e:
-            print(f"Error generating response: {e}")
-            await message.channel.send("Oops, something went wrong. Please try again later.")
-
+# ----------------------------
+# 8. Main Entry
+# ----------------------------
 @bot.event
 async def on_ready():
     print(f"Bot is online! Logged in as {bot.user}")
-    periodic_tasks.start()  # Now the loop is running
-# ----------------------------
-# 7. Main Entry
-# ----------------------------
+    periodic_tasks.start()
+
 if __name__ == "__main__":
-    # periodic_tasks.start()  # start background tasks
     bot.run(DISCORD_TOKEN)
