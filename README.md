@@ -1,6 +1,6 @@
 # Lachesis Discord Bot
 
-Lachesis is a dynamic Discord bot that serves as a Game Master (GM) for role-playing adventures. Named after the Fate who measures the thread of life, Lachesis guides users through character creation and immersive adventures.
+Lachesis is a dynamic Discord bot that serves as a Game Master (GM) for role-playing adventures. Mostly planned with long-short term memory of conversation and its own internal train of thought asynchronous of user.
 
 ## Features
 
