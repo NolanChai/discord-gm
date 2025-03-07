@@ -1,0 +1,199 @@
+{
+    "id": "temple_of_fate",
+    "title": "The Temple of Fate",
+    "type": "template",
+    "description": "An ancient temple dedicated to the three Fates holds powerful artifacts and dangerous trials",
+    "recommended_level": 1,
+    "tags": ["dungeon", "mythology", "puzzle", "combat"],
+    "created_at": "2025-03-07T00:00:00Z",
+    "scenes": {
+      "scene_start": {
+        "id": "scene_start",
+        "type": "introduction",
+        "description": "Standing before an ancient stone temple nestled between towering cliffs, you feel a strange pull - as if invisible threads tug at your very being. Weathered statues of three robed women flank the entrance, their faces worn by time yet still conveying a sense of cosmic power. One holds a spindle, another measures with a rod, and the third carries shears.\n\nAbove the doorway, inscribed in a language that somehow shifts into words you understand as you gaze upon it: \"Enter, seeker of destiny, and face the trials of the Three who weave the tapestry of all lives.\"\n\nThe massive bronze doors stand slightly ajar, a dim, flickering light emanating from within. The air around the temple seems charged with ancient power.\n\n**What will you do?**",
+        "options": [
+          {
+            "text": "Enter the temple cautiously",
+            "next": "scene_entrance_hall"
+          },
+          {
+            "text": "Examine the statues more closely before entering",
+            "next": "scene_examine_statues"
+          },
+          {
+            "text": "Look for another way in",
+            "next": "scene_side_entrance"
+          }
+        ],
+        "variables": {}
+      },
+      "scene_examine_statues": {
+        "id": "scene_examine_statues",
+        "type": "exploration",
+        "description": "You approach the weathered statues, feeling their ancient presence grow stronger with each step. The three robed figures tower above you, carved from a strange stone that seems to shimmer faintly when viewed from the corner of your eye.\n\nThe first statue, holding a spindle, has a serene expression. At her feet, an inscription reads: \"Clotho, who spins the thread of life.\"\n\nThe middle figure measures with her rod, her expression contemplative and calculating. Her inscription: \"Lachesis, who measures the thread and determines its length.\"\n\nThe third, with her shears poised, bears a grave but not unkind expression. Below her: \"Atropos, who cuts the thread when time has come.\"\n\nAs you study them, you notice each statue has a small alcove at its base, as if something should be placed there. The alcove under Lachesis glows faintly, almost imperceptibly.\n\n**What will you do?**",
+        "options": [
+          {
+            "text": "Place an offering in Lachesis's alcove",
+            "next": "scene_lachesis_offering"
+          },
+          {
+            "text": "Enter the temple now",
+            "next": "scene_entrance_hall"
+          },
+          {
+            "text": "Look for items nearby that might fit in the alcoves",
+            "next": "scene_find_offering"
+          }
+        ],
+        "variables": {
+          "knowledge_gained": "fate_statues"
+        }
+      },
+      "scene_lachesis_offering": {
+        "id": "scene_lachesis_offering",
+        "type": "puzzle",
+        "description": "You consider what offering might please Lachesis, the measurer of life's thread. From your belongings, you select something meaningful - perhaps a coin, a small keepsake, or even a drop of your own blood.\n\nAs you place your offering in the alcove beneath Lachesis, the stone glows with a soft, golden light. The statue above seems to shift slightly, the stone face appearing to gaze directly at you for just a moment.\n\nA gentle voice, like the whisper of thread against cloth, fills your mind: \"Seeker, you honor the Measurer. May your path be balanced between what is too short and what is too long. Look for my symbol within.\"\n\nYou feel a strange warmth spreading through you, and somehow know that within the temple, Lachesis will watch over your journey with particular interest.\n\n**What will you do now?**",
+        "options": [
+          {
+            "text": "Enter the temple, emboldened by Lachesis's blessing",
+            "next": "scene_entrance_hall_blessed"
+          },
+          {
+            "text": "Make offerings to the other Fates as well",
+            "next": "scene_other_offerings"
+          }
+        ],
+        "variables": {
+          "blessing": "lachesis",
+          "items_gained": ["lachesis_token"]
+        }
+      },
+      "scene_entrance_hall": {
+        "id": "scene_entrance_hall",
+        "type": "exploration",
+        "description": "You step through the massive bronze doors into a vast circular chamber. The ceiling arches high above, painted with constellations that seem to twinkle and move as if alive. Three corridors branch from this central hall, each marked by a different symbol glowing faintly on the floor before it.\n\nTo the left, a corridor marked with a spindle symbol.\nStraight ahead, a corridor marked with a measuring rod.\nTo the right, a corridor marked with shears.\n\nIn the center of the room stands a stone plinth with an ancient text inscribed upon it: \"Choose your trial wisely, for as in life, each path brings different measures of joy and sorrow, challenge and reward.\"\n\nTorches flicker along the walls, casting dancing shadows that sometimes seem to move independently of the flames.\n\n**Which path will you choose?**",
+        "options": [
+          {
+            "text": "Take the left corridor (Clotho's Spindle)",
+            "next": "scene_clotho_corridor"
+          },
+          {
+            "text": "Take the center corridor (Lachesis's Rod)",
+            "next": "scene_lachesis_corridor"
+          },
+          {
+            "text": "Take the right corridor (Atropos's Shears)",
+            "next": "scene_atropos_corridor"
+          }
+        ],
+        "variables": {}
+      },
+      "scene_entrance_hall_blessed": {
+        "id": "scene_entrance_hall_blessed",
+        "type": "exploration",
+        "description": "You step through the massive bronze doors into a vast circular chamber, feeling Lachesis's blessing upon you. The ceiling arches high above, painted with constellations that seem to twinkle and move as if alive. Three corridors branch from this central hall, each marked by a different symbol glowing on the floor before it.\n\nTo the left, a corridor marked with a spindle symbol.\nStraight ahead, a corridor marked with a measuring rod - this one glows noticeably brighter, as if greeting you.\nTo the right, a corridor marked with shears.\n\nIn the center of the room stands a stone plinth with an ancient text inscribed upon it: \"Choose your trial wisely, for as in life, each path brings different measures of joy and sorrow, challenge and reward.\"\n\nThe token of Lachesis pulses warmly in your possession, and you sense that her path might hold special meaning for you.\n\n**Which path will you choose?**",
+        "options": [
+          {
+            "text": "Take the left corridor (Clotho's Spindle)",
+            "next": "scene_clotho_corridor"
+          },
+          {
+            "text": "Take the center corridor (Lachesis's Rod)",
+            "next": "scene_lachesis_corridor_blessed"
+          },
+          {
+            "text": "Take the right corridor (Atropos's Shears)",
+            "next": "scene_atropos_corridor"
+          }
+        ],
+        "variables": {}
+      },
+      "scene_lachesis_corridor": {
+        "id": "scene_lachesis_corridor",
+        "type": "challenge",
+        "description": "You follow the center path, walking beneath archways adorned with measuring tools of all kinds - scales, rods, hourglasses, and more complex devices you don't recognize. The corridor leads to a chamber filled with golden light.\n\nIn the center stands a reflecting pool, its surface perfectly still. Above it hangs a massive golden balance scale, suspended from nowhere, simply floating in the air. On one side of the scale rests a single feather.\n\nAs you approach, words appear in your mind: \"I am Lachesis, who measures all things. To proceed, you must know the weight of your decisions. Place upon my scale an object that represents your greatest choice in life. If it balances against the Feather of Truth, you may pass.\"\n\nYou realize you must choose something from your possessions - or perhaps a memory or truth - to place upon the empty scale.\n\n**What will you place on the scale?**",
+        "options": [
+          {
+            "text": "Place a personal treasure that represents an important life choice",
+            "next": "scene_lachesis_test_material"
+          },
+          {
+            "text": "Offer a truth or confession about a major decision in your life",
+            "next": "scene_lachesis_test_truth"
+          },
+          {
+            "text": "Try to trick the test with a cleverly chosen item",
+            "next": "scene_lachesis_test_trick"
+          }
+        ],
+        "variables": {}
+      },
+      "scene_lachesis_corridor_blessed": {
+        "id": "scene_lachesis_corridor_blessed",
+        "type": "challenge",
+        "description": "You follow the center path, walking beneath archways adorned with measuring tools of all kinds. With Lachesis's blessing upon you, the symbols seem to glow with recognition as you pass. The corridor leads to a chamber filled with warm golden light that welcomes you like an old friend.\n\nIn the center stands a reflecting pool, its surface perfectly still. Above it hangs a massive golden balance scale, suspended from nowhere. On one side of the scale rests a single feather. As you enter, the token of Lachesis pulses warmly.\n\nA gentle voice speaks directly to your mind: \"You who bear my favor, I am Lachesis, who measures all things. Your offering has shown wisdom, but all must face the weighing. Place upon my scale that which represents your greatest choice in life. The feather will know truth from falsehood, but your path shall be kinder for the respect you have shown.\"\n\n**What will you place on the scale?**",
+        "options": [
+          {
+            "text": "Place a personal treasure that represents an important life choice",
+            "next": "scene_lachesis_test_blessed_material"
+          },
+          {
+            "text": "Offer a truth or confession about a major decision in your life",
+            "next": "scene_lachesis_test_blessed_truth"
+          },
+          {
+            "text": "Place the token Lachesis gifted you",
+            "next": "scene_lachesis_token_return"
+          }
+        ],
+        "variables": {}
+      },
+      "scene_lachesis_test_blessed_truth": {
+        "id": "scene_lachesis_test_blessed_truth",
+        "type": "reward",
+        "description": "With Lachesis's blessing already upon you, you speak a profound truth about a pivotal decision in your life. As your words hang in the air, they seem to take physical form - shimmering, golden threads that weave themselves into a pattern above the scale.\n\nThe pattern gently descends onto the empty side of the scale. For a moment, nothing happens - then the scales balance perfectly, the feather and your truth in perfect harmony.\n\nThe pool below ripples, and from its depths rises a golden measuring rod, similar to the one held by Lachesis's statue but sized for your hand. It emits a soft glow and feels warm to the touch.\n\n\"You have measured your life with wisdom,\" comes Lachesis's voice. \"Take this Rod of Measurement. Once per day, it can reveal the true weight of any choice or object. Use it wisely, for true balance is the greatest of virtues.\"\n\nA doorway opens in the far wall, revealing a passage forward deeper into the temple.\n\n**What will you do?**",
+        "options": [
+          {
+            "text": "Take the Rod of Measurement and continue through the new passage",
+            "next": "scene_central_chamber"
+          },
+          {
+            "text": "Return to the entrance hall to try another path first",
+            "next": "scene_entrance_hall_blessed"
+          }
+        ],
+        "variables": {
+          "items_gained": ["rod_of_measurement"],
+          "trials_completed": ["lachesis"]
+        }
+      },
+      "scene_central_chamber": {
+        "id": "scene_central_chamber",
+        "type": "finale",
+        "description": "The passage leads you to a stunning central chamber, the true heart of the Temple of Fate. Here, an enormous loom dominates the space, with golden threads stretching from floor to ceiling, weaving a tapestry of unimaginable complexity and beauty. Each thread seems to represent a life, intertwining with countless others in patterns both chaotic and harmonious.\n\nThree ornate thrones sit before the loom, currently empty, but radiating power. Above each throne floats a symbol - a spindle, a measuring rod, and a pair of shears.\n\nIn the center of the room, atop a pedestal of white marble, rests a small wooden box, unadorned except for a single symbol that combines elements of all three Fates' emblems.\n\nYou sense that this chamber represents the culmination of your journey through the temple. Whatever lies within that box is the ultimate reward - or perhaps the ultimate test.\n\n**What will you do?**",
+        "options": [
+          {
+            "text": "Approach and open the box",
+            "next": "scene_open_box"
+          },
+          {
+            "text": "Examine the great loom more closely first",
+            "next": "scene_examine_loom"
+          },
+          {
+            "text": "Pay respects at the three thrones before approaching the box",
+            "next": "scene_honor_fates"
+          }
+        ],
+        "variables": {
+          "reached_central_chamber": true
+        }
+      }
+    },
+    "variables": {
+      "blessing": null,
+      "items_gained": [],
+      "trials_completed": [],
+      "knowledge_gained": []
+    }
+  }

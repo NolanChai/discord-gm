@@ -1,452 +1,448 @@
+"""
+Adventure Manager for Lachesis bot.
+
+This module handles the creation and tracking of adventures.
+"""
+
 import os
 import json
+import uuid
+import logging
 from datetime import datetime
-import random
+from typing import Dict, List, Any, Optional
+
+logger = logging.getLogger("lachesis.adventure_manager")
 
 class AdventureManager:
     """
-    Manages adventure data, state, and progression.
+    Manager for adventures.
+    
+    Handles the creation, storage, and retrieval of adventures
+    and adventure templates.
     """
-    def __init__(self, data_dir):
+    
+    def __init__(self, data_dir: str):
         """
         Initialize the adventure manager.
         
         Args:
-            data_dir: Directory for storing adventure files
+            data_dir (str): Directory for storing adventure data
         """
         self.data_dir = data_dir
-        self.adventures_dir = os.path.join(data_dir, "adventures")
-        self.templates_dir = os.path.join(self.adventures_dir, "templates")
+        self.templates_dir = os.path.join(data_dir, "templates")
+        self.active_dir = os.path.join(data_dir, "active")
         
-        # Ensure directories exist
-        os.makedirs(self.adventures_dir, exist_ok=True)
+        # Create directories if they don't exist
         os.makedirs(self.templates_dir, exist_ok=True)
+        os.makedirs(self.active_dir, exist_ok=True)
         
-        # Load adventure templates
-        self.templates = self._load_templates()
+        # Cache for active adventures
+        self.active_cache = {}  # adventure_id -> adventure_data
     
-    def _load_templates(self):
+    def get_adventure_templates(self) -> List[Dict[str, Any]]:
         """
-        Load all adventure templates.
+        Get all available adventure templates.
         
         Returns:
-            dict: Dictionary of template_id -> template
+            List[Dict]: List of adventure templates
         """
-        templates = {}
+        templates = []
         
-        # Try to load templates from files
-        if os.path.exists(self.templates_dir):
+        try:
             for filename in os.listdir(self.templates_dir):
                 if filename.endswith(".json"):
                     template_path = os.path.join(self.templates_dir, filename)
-                    try:
-                        with open(template_path, 'r') as f:
-                            template_data = json.load(f)
-                            template_id = template_data.get("id", filename[:-5])
-                            templates[template_id] = template_data
-                    except (json.JSONDecodeError, IOError) as e:
-                        print(f"Error loading template {filename}: {e}")
-        
-        # If no templates found, create some default ones
-        if not templates:
-            templates = self._create_default_templates()
+                    with open(template_path, 'r', encoding='utf-8') as f:
+                        template = json.load(f)
+                    templates.append(template)
+        except Exception as e:
+            logger.error(f"Error loading adventure templates: {e}")
         
         return templates
     
-    def _create_default_templates(self):
+    def get_adventure_template(self, template_id: str) -> Optional[Dict[str, Any]]:
         """
-        Create default adventure templates.
-        
-        Returns:
-            dict: Dictionary of template_id -> template
-        """
-        templates = {
-            "forest_quest": {
-                "id": "forest_quest",
-                "title": "Mystery of the Enchanted Forest",
-                "description": "Strange occurrences have been reported in the ancient forest. Investigate the source of the disturbances.",
-                "difficulty": "beginner",
-                "min_level": 1,
-                "recommended_players": 1,
-                "scenes": [
-                    {
-                        "id": "forest_entrance",
-                        "description": "You stand at the entrance to the ancient forest. Twisted trees form a dark canopy overhead, and strange sounds echo from within.",
-                        "options": [
-                            {"text": "Enter the forest cautiously", "next": "forest_path"},
-                            {"text": "Look for tracks or signs", "next": "forest_tracks"},
-                            {"text": "Call out to anyone who might be nearby", "next": "forest_call"}
-                        ]
-                    },
-                    # More scenes would be defined here
-                ]
-            },
-            "dungeon_crawl": {
-                "id": "dungeon_crawl",
-                "title": "The Forgotten Catacombs",
-                "description": "A network of ancient catacombs has been discovered beneath the city. Explore and uncover its secrets.",
-                "difficulty": "intermediate",
-                "min_level": 3,
-                "recommended_players": 2,
-                "scenes": [
-                    {
-                        "id": "catacomb_entrance",
-                        "description": "You stand before a crumbling stone archway, steps leading down into darkness. The air is damp and cold.",
-                        "options": [
-                            {"text": "Light a torch and proceed down the steps", "next": "main_chamber"},
-                            {"text": "Check the entrance for traps", "next": "entrance_check"},
-                            {"text": "Listen for sounds from below", "next": "entrance_listen"}
-                        ]
-                    },
-                    # More scenes would be defined here
-                ]
-            }
-        }
-        
-        # Save the default templates
-        for template_id, template in templates.items():
-            self._save_template(template)
-        
-        return templates
-    
-    def _save_template(self, template):
-        """
-        Save an adventure template to disk.
+        Get a specific adventure template.
         
         Args:
-            template: Template data to save
+            template_id (str): Template ID
             
         Returns:
-            bool: Success or failure
+            Optional[Dict]: Adventure template or None if not found
         """
-        template_id = template.get("id", f"template_{int(datetime.now().timestamp())}")
         template_path = os.path.join(self.templates_dir, f"{template_id}.json")
         
         try:
-            with open(template_path, 'w') as f:
-                json.dump(template, f, indent=2)
-            return True
-        except IOError as e:
-            print(f"Error saving template {template_id}: {e}")
-            return False
+            if os.path.exists(template_path):
+                with open(template_path, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+        except Exception as e:
+            logger.error(f"Error loading adventure template {template_id}: {e}")
+        
+        return None
     
-    def _get_adventure_dir(self, adventure_id):
-        """Get the directory for a specific adventure, creating it if it doesn't exist."""
-        adventure_dir = os.path.join(self.adventures_dir, adventure_id)
-        os.makedirs(adventure_dir, exist_ok=True)
-        return adventure_dir
-    
-    def _get_adventure_path(self, adventure_id):
-        """Get the path to an adventure's main file."""
-        return os.path.join(self._get_adventure_dir(adventure_id), "adventure.json")
-    
-    def create_adventure(self, user_id, template_id=None, participants=None):
+    def create_adventure_template(self, template_data: Dict[str, Any]) -> str:
         """
-        Create a new adventure for a user.
+        Create a new adventure template.
         
         Args:
-            user_id: Discord user ID of the creator
-            template_id: Optional template to use (random if not specified)
-            participants: Optional list of participant user IDs
-            
-        Returns:
-            str: Adventure ID
-        """
-        # Generate a unique adventure ID
-        adventure_id = f"adv_{user_id}_{int(datetime.now().timestamp())}"
-        
-        # Choose a template if not specified
-        if template_id is None or template_id not in self.templates:
-            template_id = random.choice(list(self.templates.keys()))
-        
-        template = self.templates[template_id]
-        
-        # Create the adventure data
-        adventure = {
-            "id": adventure_id,
-            "template_id": template_id,
-            "title": template.get("title", "Untitled Adventure"),
-            "description": template.get("description", ""),
-            "created_at": datetime.now().isoformat(),
-            "creator_id": user_id,
-            "participants": participants or [user_id],
-            "status": "active",
-            "current_scene": template.get("scenes", [])[0].get("id") if template.get("scenes") else None,
-            "visited_scenes": [],
-            "state": {
-                "variables": {},
-                "inventory": {},
-                "npcs": {},
-                "quests": {}
-            }
-        }
-        
-        # Save the adventure
-        adventure_path = self._get_adventure_path(adventure_id)
-        try:
-            with open(adventure_path, 'w') as f:
-                json.dump(adventure, f, indent=2)
-        except IOError as e:
-            print(f"Error saving adventure {adventure_id}: {e}")
-            return None
-        
-        return adventure_id
-    
-    def load_adventure(self, adventure_id):
-        """
-        Load an adventure by ID.
-        
-        Args:
-            adventure_id: Adventure ID
-            
-        Returns:
-            dict: Adventure data or None if not found
-        """
-        adventure_path = self._get_adventure_path(adventure_id)
-        if not os.path.exists(adventure_path):
-            return None
-        
-        try:
-            with open(adventure_path, 'r') as f:
-                return json.load(f)
-        except (json.JSONDecodeError, IOError) as e:
-            print(f"Error loading adventure {adventure_id}: {e}")
-            return None
-    
-    def save_adventure(self, adventure_id, adventure_data):
-        """
-        Save adventure data.
-        
-        Args:
-            adventure_id: Adventure ID
-            adventure_data: Adventure data to save
-            
-        Returns:
-            bool: Success or failure
-        """
-        adventure_path = self._get_adventure_path(adventure_id)
-        
-        try:
-            with open(adventure_path, 'w') as f:
-                json.dump(adventure_data, f, indent=2)
-            return True
-        except IOError as e:
-            print(f"Error saving adventure {adventure_id}: {e}")
-            return False
-    
-    def get_user_adventures(self, user_id):
-        """
-        Get all adventures a user is participating in.
-        
-        Args:
-            user_id: Discord user ID
-            
-        Returns:
-            list: List of adventure data
-        """
-        adventures = []
-        
-        # Check all adventures in the directory
-        if os.path.exists(self.adventures_dir):
-            for item in os.listdir(self.adventures_dir):
-                adventure_dir = os.path.join(self.adventures_dir, item)
-                if os.path.isdir(adventure_dir):
-                    adventure_path = os.path.join(adventure_dir, "adventure.json")
-                    if os.path.exists(adventure_path):
-                        try:
-                            with open(adventure_path, 'r') as f:
-                                adventure = json.load(f)
-                                if user_id in adventure.get("participants", []):
-                                    adventures.append(adventure)
-                        except (json.JSONDecodeError, IOError):
-                            continue
-        
-        return adventures
-    
-    def get_active_adventure(self, user_id):
-        """
-        Get the user's currently active adventure.
-        
-        Args:
-            user_id: Discord user ID
-            
-        Returns:
-            tuple: (adventure_id, adventure_data) or (None, None) if no active adventure
-        """
-        adventures = self.get_user_adventures(user_id)
-        
-        # Filter to active adventures
-        active_adventures = [adv for adv in adventures if adv.get("status") == "active"]
-        
-        if not active_adventures:
-            return None, None
-        
-        # If multiple active adventures, use the most recent one
-        active_adventures.sort(key=lambda adv: adv.get("created_at", ""), reverse=True)
-        adventure = active_adventures[0]
-        
-        return adventure.get("id"), adventure
-    
-    def update_adventure_state(self, adventure_id, updates):
-        """
-        Update an adventure's state variables.
-        
-        Args:
-            adventure_id: Adventure ID
-            updates: Dictionary of state updates
-            
-        Returns:
-            bool: Success or failure
-        """
-        adventure = self.load_adventure(adventure_id)
-        if not adventure:
-            return False
-        
-        # Update state variables
-        if "variables" in updates:
-            adventure["state"]["variables"].update(updates["variables"])
-        
-        if "inventory" in updates:
-            adventure["state"]["inventory"].update(updates["inventory"])
-        
-        if "npcs" in updates:
-            adventure["state"]["npcs"].update(updates["npcs"])
-        
-        if "quests" in updates:
-            adventure["state"]["quests"].update(updates["quests"])
-        
-        # Save updated adventure
-        return self.save_adventure(adventure_id, adventure)
-    
-    def advance_scene(self, adventure_id, next_scene_id):
-        """
-        Advance to the next scene in an adventure.
-        
-        Args:
-            adventure_id: Adventure ID
-            next_scene_id: ID of the next scene
-            
-        Returns:
-            dict: New scene data or None on failure
-        """
-        adventure = self.load_adventure(adventure_id)
-        if not adventure:
-            return None
-        
-        # Get the template for this adventure
-        template_id = adventure.get("template_id")
-        template = self.templates.get(template_id)
-        if not template:
-            return None
-        
-        # Find the next scene in the template
-        scenes = template.get("scenes", [])
-        next_scene = None
-        for scene in scenes:
-            if scene.get("id") == next_scene_id:
-                next_scene = scene
-                break
-        
-        if not next_scene:
-            return None
-        
-        # Update adventure with new scene
-        adventure["current_scene"] = next_scene_id
-        adventure["visited_scenes"].append(next_scene_id)
-        
-        # Save updated adventure
-        if not self.save_adventure(adventure_id, adventure):
-            return None
-        
-        return next_scene
-    
-    def end_adventure(self, adventure_id, status="completed"):
-        """
-        End an adventure.
-        
-        Args:
-            adventure_id: Adventure ID
-            status: End status (completed, failed, abandoned)
-            
-        Returns:
-            bool: Success or failure
-        """
-        adventure = self.load_adventure(adventure_id)
-        if not adventure:
-            return False
-        
-        # Update status and end time
-        adventure["status"] = status
-        adventure["ended_at"] = datetime.now().isoformat()
-        
-        # Save updated adventure
-        return self.save_adventure(adventure_id, adventure)
-    
-    def create_custom_template(self, template_data):
-        """
-        Create a custom adventure template.
-        
-        Args:
-            template_data: Template data
+            template_data (Dict): Template data
             
         Returns:
             str: Template ID
         """
-        # Generate a unique template ID if not provided
+        # Generate ID if not provided
         if "id" not in template_data:
-            template_data["id"] = f"custom_{int(datetime.now().timestamp())}"
+            template_data["id"] = f"template_{uuid.uuid4().hex[:8]}"
         
-        # Save the template
-        if self._save_template(template_data):
-            # Update the in-memory templates
-            self.templates[template_data["id"]] = template_data
+        # Add timestamp
+        template_data["created_at"] = datetime.now().isoformat()
+        
+        # Save to disk
+        template_path = os.path.join(self.templates_dir, f"{template_data['id']}.json")
+        
+        try:
+            with open(template_path, 'w', encoding='utf-8') as f:
+                json.dump(template_data, f, indent=2, ensure_ascii=False)
+            
+            logger.info(f"Created adventure template: {template_data['id']}")
             return template_data["id"]
+        except Exception as e:
+            logger.error(f"Error creating adventure template: {e}")
+            return ""
+    
+    def start_adventure(self, user_id: str, template_id: Optional[str] = None) -> str:
+        """
+        Start a new adventure for a user.
+        
+        Args:
+            user_id (str): User ID
+            template_id (Optional[str]): Template ID (if None, create a dynamic adventure)
+            
+        Returns:
+            str: Adventure ID
+        """
+        # Generate adventure ID
+        adventure_id = f"adv_{uuid.uuid4().hex[:8]}"
+        
+        # Load template if provided
+        if template_id:
+            template = self.get_adventure_template(template_id)
+            if not template:
+                logger.error(f"Template {template_id} not found")
+                return ""
+            
+            adventure_data = template.copy()
+        else:
+            # Create a basic dynamic adventure structure
+            adventure_data = {
+                "id": adventure_id,
+                "title": "Dynamic Adventure",
+                "type": "dynamic",
+                "created_at": datetime.now().isoformat(),
+                "scenes": {},
+                "current_scene": "start",
+                "next_scene_id": 1,
+                "variables": {},
+                "history": []
+            }
+        
+        # Add adventure metadata
+        adventure_data["adventure_id"] = adventure_id
+        adventure_data["user_id"] = user_id
+        adventure_data["started_at"] = datetime.now().isoformat()
+        adventure_data["last_updated"] = datetime.now().isoformat()
+        adventure_data["active"] = True
+        
+        # Save to disk
+        adventure_path = os.path.join(self.active_dir, f"{adventure_id}.json")
+        
+        try:
+            with open(adventure_path, 'w', encoding='utf-8') as f:
+                json.dump(adventure_data, f, indent=2, ensure_ascii=False)
+            
+            # Add to cache
+            self.active_cache[adventure_id] = adventure_data
+            
+            logger.info(f"Started adventure {adventure_id} for user {user_id}")
+            return adventure_id
+        except Exception as e:
+            logger.error(f"Error starting adventure: {e}")
+            return ""
+    
+    def get_adventure(self, adventure_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get an active adventure.
+        
+        Args:
+            adventure_id (str): Adventure ID
+            
+        Returns:
+            Optional[Dict]: Adventure data or None if not found
+        """
+        # Check cache first
+        if adventure_id in self.active_cache:
+            return self.active_cache[adventure_id]
+        
+        # Load from disk
+        adventure_path = os.path.join(self.active_dir, f"{adventure_id}.json")
+        
+        try:
+            if os.path.exists(adventure_path):
+                with open(adventure_path, 'r', encoding='utf-8') as f:
+                    adventure_data = json.load(f)
+                
+                # Add to cache
+                self.active_cache[adventure_id] = adventure_data
+                
+                return adventure_data
+        except Exception as e:
+            logger.error(f"Error loading adventure {adventure_id}: {e}")
         
         return None
     
-    def get_adventure_summary(self, adventure_id):
+    def get_active_adventures_for_user(self, user_id: str) -> List[Dict[str, Any]]:
         """
-        Get a summary of an adventure.
+        Get all active adventures for a user.
         
         Args:
-            adventure_id: Adventure ID
+            user_id (str): User ID
             
         Returns:
-            str: Adventure summary
+            List[Dict]: List of active adventures
         """
-        adventure = self.load_adventure(adventure_id)
+        adventures = []
+        
+        try:
+            for filename in os.listdir(self.active_dir):
+                if filename.endswith(".json"):
+                    adventure_path = os.path.join(self.active_dir, filename)
+                    
+                    try:
+                        with open(adventure_path, 'r', encoding='utf-8') as f:
+                            adventure_data = json.load(f)
+                        
+                        if (adventure_data.get("user_id") == user_id and 
+                                adventure_data.get("active", False)):
+                            adventures.append(adventure_data)
+                    except Exception:
+                        # Skip if error reading adventure
+                        pass
+        except Exception as e:
+            logger.error(f"Error loading user adventures: {e}")
+        
+        return adventures
+    
+    def add_scene(self, adventure_id: str, scene_data: Dict[str, Any]) -> str:
+        """
+        Add a scene to an adventure.
+        
+        Args:
+            adventure_id (str): Adventure ID
+            scene_data (Dict): Scene data
+            
+        Returns:
+            str: Scene ID
+        """
+        adventure = self.get_adventure(adventure_id)
         if not adventure:
-            return "Adventure not found."
+            logger.error(f"Adventure {adventure_id} not found")
+            return ""
         
-        template_id = adventure.get("template_id")
-        template = self.templates.get(template_id)
+        # Generate scene ID if not provided
+        if "id" not in scene_data:
+            next_id = adventure.get("next_scene_id", 1)
+            scene_data["id"] = f"scene_{next_id}"
+            adventure["next_scene_id"] = next_id + 1
         
-        title = adventure.get("title", "Untitled Adventure")
-        status = adventure.get("status", "unknown")
-        creator_id = adventure.get("creator_id", "unknown")
-        participant_count = len(adventure.get("participants", []))
-        visited_count = len(adventure.get("visited_scenes", []))
+        # Add scene to adventure
+        if "scenes" not in adventure:
+            adventure["scenes"] = {}
         
-        summary = (
-            f"**{title}**\n"
-            f"Status: {status}\n"
-            f"Creator: <@{creator_id}>\n"
-            f"Participants: {participant_count}\n"
-            f"Progress: {visited_count} scenes visited\n"
-        )
+        adventure["scenes"][scene_data["id"]] = scene_data
         
-        if template:
-            scene_count = len(template.get("scenes", []))
-            summary += f"Total scenes: {scene_count}\n"
+        # Add timestamp
+        adventure["last_updated"] = datetime.now().isoformat()
         
-        if status == "completed":
-            ended_at = adventure.get("ended_at", "unknown")
-            if ended_at != "unknown":
-                try:
-                    ended_date = datetime.fromisoformat(ended_at)
-                    ended_str = ended_date.strftime("%Y-%m-%d %H:%M")
-                    summary += f"Completed on: {ended_str}\n"
-                except ValueError:
-                    summary += f"Completed on: {ended_at}\n"
+        # Save to disk
+        self._save_adventure(adventure)
         
-        return summary
+        return scene_data["id"]
+    
+    def update_scene(self, adventure_id: str, scene_id: str, updates: Dict[str, Any]) -> bool:
+        """
+        Update a scene in an adventure.
+        
+        Args:
+            adventure_id (str): Adventure ID
+            scene_id (str): Scene ID
+            updates (Dict): Updates to apply
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        adventure = self.get_adventure(adventure_id)
+        if not adventure or "scenes" not in adventure or scene_id not in adventure["scenes"]:
+            logger.error(f"Scene {scene_id} not found in adventure {adventure_id}")
+            return False
+        
+        # Update scene
+        adventure["scenes"][scene_id].update(updates)
+        
+        # Add timestamp
+        adventure["last_updated"] = datetime.now().isoformat()
+        
+        # Save to disk
+        return self._save_adventure(adventure)
+    
+    def set_current_scene(self, adventure_id: str, scene_id: str) -> bool:
+        """
+        Set the current scene for an adventure.
+        
+        Args:
+            adventure_id (str): Adventure ID
+            scene_id (str): Scene ID
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        adventure = self.get_adventure(adventure_id)
+        if not adventure:
+            logger.error(f"Adventure {adventure_id} not found")
+            return False
+        
+        # Check if scene exists
+        if "scenes" in adventure and scene_id in adventure["scenes"]:
+            # Set current scene
+            adventure["current_scene"] = scene_id
+            
+            # Add to history
+            if "history" not in adventure:
+                adventure["history"] = []
+            adventure["history"].append({
+                "scene": scene_id,
+                "timestamp": datetime.now().isoformat()
+            })
+            
+            # Add timestamp
+            adventure["last_updated"] = datetime.now().isoformat()
+            
+            # Save to disk
+            return self._save_adventure(adventure)
+        else:
+            logger.error(f"Scene {scene_id} not found in adventure {adventure_id}")
+            return False
+    
+    def get_current_scene(self, adventure_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get the current scene for an adventure.
+        
+        Args:
+            adventure_id (str): Adventure ID
+            
+        Returns:
+            Optional[Dict]: Current scene data or None if not found
+        """
+        adventure = self.get_adventure(adventure_id)
+        if not adventure:
+            logger.error(f"Adventure {adventure_id} not found")
+            return None
+        
+        current_scene_id = adventure.get("current_scene")
+        if not current_scene_id:
+            return None
+        
+        return adventure.get("scenes", {}).get(current_scene_id)
+    
+    def advance_scene(self, adventure_id: str, choice_key: str) -> Optional[Dict[str, Any]]:
+        """
+        Advance to the next scene based on a choice.
+        
+        Args:
+            adventure_id (str): Adventure ID
+            choice_key (str): Choice key
+            
+        Returns:
+            Optional[Dict]: Next scene data or None if not found
+        """
+        adventure = self.get_adventure(adventure_id)
+        if not adventure:
+            logger.error(f"Adventure {adventure_id} not found")
+            return None
+        
+        current_scene_id = adventure.get("current_scene")
+        if not current_scene_id:
+            return None
+        
+        current_scene = adventure.get("scenes", {}).get(current_scene_id)
+        if not current_scene:
+            return None
+        
+        # Find the option that matches the choice
+        next_scene_id = None
+        for option in current_scene.get("options", []):
+            if option.get("next") == choice_key:
+                next_scene_id = choice_key
+                break
+        
+        if not next_scene_id:
+            logger.error(f"Choice {choice_key} not found in scene {current_scene_id}")
+            return None
+        
+        # Set the next scene
+        self.set_current_scene(adventure_id, next_scene_id)
+        
+        # Return the next scene
+        return adventure.get("scenes", {}).get(next_scene_id)
+    
+    def complete_adventure(self, adventure_id: str) -> bool:
+        """
+        Mark an adventure as completed.
+        
+        Args:
+            adventure_id (str): Adventure ID
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        adventure = self.get_adventure(adventure_id)
+        if not adventure:
+            logger.error(f"Adventure {adventure_id} not found")
+            return False
+        
+        # Mark as inactive
+        adventure["active"] = False
+        adventure["completed_at"] = datetime.now().isoformat()
+        adventure["last_updated"] = datetime.now().isoformat()
+        
+        # Save to disk
+        return self._save_adventure(adventure)
+    
+    def _save_adventure(self, adventure: Dict[str, Any]) -> bool:
+        """
+        Save an adventure to disk.
+        
+        Args:
+            adventure (Dict): Adventure data
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        adventure_id = adventure.get("adventure_id")
+        if not adventure_id:
+            logger.error("Adventure missing ID")
+            return False
+        
+        adventure_path = os.path.join(self.active_dir, f"{adventure_id}.json")
+        
+        try:
+            with open(adventure_path, 'w', encoding='utf-8') as f:
+                json.dump(adventure, f, indent=2, ensure_ascii=False)
+            
+            # Update cache
+            self.active_cache[adventure_id] = adventure
+            
+            return True
+        except Exception as e:
+            logger.error(f"Error saving adventure {adventure_id}: {e}")
+            return False

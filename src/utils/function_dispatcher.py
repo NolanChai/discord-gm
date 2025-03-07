@@ -1,118 +1,146 @@
+"""
+Function dispatcher for Lachesis bot.
+
+This module handles the registration and dispatching of functions
+that can be called by the LLM.
+"""
+
 import json
 import re
+import logging
+from typing import Dict, Any, Callable, Optional, Tuple
 
-# Markers for function calls in LLM output
-FUNCTION_MARKER_START = "<|function_call|>"
-FUNCTION_MARKER_END = "<|end_function_call|>"
+logger = logging.getLogger("lachesis.function_dispatcher")
 
 class FunctionDispatcher:
     """
-    Handles parsing and dispatching of function calls from LLM responses.
+    Dispatches function calls from LLM responses to registered handlers.
     """
+    
     def __init__(self):
         """Initialize the function dispatcher."""
-        self.functions = {}  # name -> function
+        self.functions = {}
     
-    def register_function(self, name, func):
+    def register_function(self, name: str, handler: Callable):
         """
-        Register a function to be callable by the LLM.
+        Register a function handler.
         
         Args:
-            name: Function name
-            func: Function to call
+            name (str): Name of the function
+            handler (Callable): Function to call when this function is dispatched
         """
-        self.functions[name] = func
+        self.functions[name] = handler
+        logger.info(f"Registered function: {name}")
     
-    def extract_function_call(self, text):
-        """
-        Extract function call JSON from text.
-        
-        Args:
-            text: Text to extract function call from
-            
-        Returns:
-            dict or None: Extracted function call or None if no function call found
-        """
-        # Try explicit markers first
-        pattern = f"{FUNCTION_MARKER_START}(.*?){FUNCTION_MARKER_END}"
-        match = re.search(pattern, text, re.DOTALL)
-        
-        if match:
-            func_text = match.group(1).strip()
-            try:
-                return json.loads(func_text)
-            except json.JSONDecodeError:
-                print(f"Invalid function call JSON: {func_text}")
-                return None
-        
-        # Then look for JSON-like structures that may be function calls
-        # This is a simple heuristic and might need tuning for your specific LLM
-        json_pattern = r'(?:\{\s*"name"\s*:\s*"([^"]+)"\s*,\s*"args"\s*:\s*\{.*?\}\s*\})'
-        match = re.search(json_pattern, text, re.DOTALL)
-        
-        if match:
-            try:
-                func_text = match.group(0)
-                return json.loads(func_text)
-            except json.JSONDecodeError:
-                print(f"Invalid function call JSON: {func_text}")
-                return None
-        
-        return None
-    
-    async def dispatch(self, function_call, **kwargs):
+    async def dispatch(self, function_call: Dict[str, Any], **kwargs):
         """
         Dispatch a function call to the appropriate handler.
         
         Args:
-            function_call: Function call dict with 'name' and 'args'
-            **kwargs: Additional arguments to pass to the function
+            function_call (Dict): Function call with name and args
+            **kwargs: Additional arguments to pass to the handler
             
         Returns:
             Any: Result of the function call
         """
-        if not function_call or not isinstance(function_call, dict):
-            print("Invalid function call format")
-            return None
-        
-        func_name = function_call.get("name")
+        name = function_call.get("name")
         args = function_call.get("args", {})
         
-        if not func_name or func_name not in self.functions:
-            print(f"Unknown function: {func_name}")
+        if not name:
+            logger.warning("Function call missing name")
+            return None
+        
+        if name not in self.functions:
+            logger.warning(f"Unknown function: {name}")
+            if "message" in kwargs:
+                await kwargs["message"].channel.send(f"Sorry, I don't know how to '{name}'.")
             return None
         
         try:
-            func = self.functions[func_name]
-            return await func(**args, **kwargs)
+            logger.info(f"Dispatching function: {name} with args: {args}")
+            return await self.functions[name](**args, **kwargs)
         except Exception as e:
-            print(f"Error dispatching function {func_name}: {e}")
+            logger.error(f"Error executing function {name}: {str(e)}")
+            if "message" in kwargs:
+                await kwargs["message"].channel.send(f"Error executing {name}: {str(e)}")
             return None
     
-    def get_available_functions(self):
+    def extract_function_call(self, text: str) -> Optional[Dict[str, Any]]:
         """
-        Get a list of available functions.
+        Extract a function call from text.
         
+        This handles various formats that the LLM might output, including:
+        - Clean JSON: {"name": "function_name", "args": {...}}
+        - JSON with backticks: ```json {"name": "function_name", "args": {...}} ```
+        - Function-like syntax: function_name(arg1="value", arg2="value")
+        
+        Args:
+            text (str): Text that might contain a function call
+            
         Returns:
-            list: List of available function names
+            Optional[Dict]: Extracted function call or None if not found
         """
-        return list(self.functions.keys())
+        # Try to extract JSON first
+        json_match = self._extract_json_object(text)
+        if json_match:
+            try:
+                data = json.loads(json_match)
+                if "name" in data and isinstance(data["name"], str):
+                    if "args" not in data:
+                        data["args"] = {}
+                    return data
+            except json.JSONDecodeError:
+                pass
+        
+        # Try to extract function-like syntax
+        func_match = re.search(r'(\w+)\s*\((.*)\)', text)
+        if func_match:
+            func_name = func_match.group(1)
+            args_str = func_match.group(2)
+            
+            # Parse arguments
+            args = {}
+            
+            # Handle both key=value pairs and positional arguments
+            # Handle both key=value pairs and positional arguments using triple-quoted raw string
+            key_value_pattern = r"""(\w+)\s*=\s*(?:"([^"]*)"|'([^']*)'|(\d+))"""
+            for match in re.finditer(key_value_pattern, args_str):
+                key = match.group(1)
+                # Get the first non-None group from the value alternatives
+                value = next((g for g in match.groups()[1:] if g is not None), "")
+                args[key] = value
+            
+            return {"name": func_name, "args": args}
+        
+        # If nothing else worked, look for specific function names in the text
+        known_functions = list(self.functions.keys())
+        for func in known_functions:
+            if func in text.lower():
+                # Found a mention of a known function
+                return {"name": func, "args": {}}
+        
+        return None
     
-    def get_function_descriptions(self):
+    def _extract_json_object(self, text: str) -> Optional[str]:
         """
-        Get descriptions of available functions for LLM prompts.
+        Extract a JSON object from text.
         
+        Args:
+            text (str): Text that might contain a JSON object
+            
         Returns:
-            str: Formatted function descriptions
+            Optional[str]: Extracted JSON string or None if not found
         """
-        descriptions = [
-            "Available functions:",
-            "1. start_adventure(user_id, mentions): start a new adventure",
-            "2. create_character(user_id): initiate character creation",
-            "3. update_character(user_id, field, value): update character sheet",
-            "4. execute_script(script_name, args): run a local script",
-            "5. continue_adventure(user_id): continue the adventure",
-            "6. display_profile(user_id): show character profile",
-        ]
+        # First try to find JSON within code blocks
+        code_block_pattern = r'```(?:json)?\s*({\s*".*})\s*```'
+        code_match = re.search(code_block_pattern, text, re.DOTALL)
+        if code_match:
+            return code_match.group(1)
         
-        return "\n".join(descriptions)
+        # Then try to find naked JSON objects
+        json_pattern = r'({(?:[^{}]|{(?:[^{}]|{[^{}]*})*})*})'
+        json_match = re.search(json_pattern, text)
+        if json_match:
+            return json_match.group(0)
+        
+        return None

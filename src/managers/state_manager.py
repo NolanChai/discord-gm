@@ -1,210 +1,229 @@
+"""
+State Manager for Lachesis bot.
+
+This module handles the tracking and management of user states.
+"""
+
 import os
 import json
-from datetime import datetime
+import logging
+from typing import Dict, Any, Optional
+
+logger = logging.getLogger("lachesis.state_manager")
 
 class StateManager:
     """
-    Manages the state of users in different contexts (introduction, character creation, adventure, etc.).
+    Manager for user states.
+    
+    Handles the storage and retrieval of user states,
+    which determine how the bot interacts with the user.
     """
-    def __init__(self, data_dir):
+    
+    def __init__(self, data_dir: str):
         """
         Initialize the state manager.
         
         Args:
-            data_dir: Directory for storing state files
+            data_dir (str): Directory for storing state data
         """
         self.data_dir = data_dir
-        self.states = {}  # Cache of user states: user_id -> state
-        self.metadata = {}  # Additional state metadata: user_id -> dict
+        self.states_cache = {}  # user_id -> state
+        self.metadata_cache = {}  # user_id -> metadata
+        
         os.makedirs(data_dir, exist_ok=True)
     
-    def _get_user_dir(self, user_id):
-        """Get the directory for a specific user, creating it if it doesn't exist."""
+    def _get_state_path(self, user_id: str) -> str:
+        """
+        Get the file path for a user's state.
+        
+        Args:
+            user_id (str): User ID
+            
+        Returns:
+            str: Path to the user's state file
+        """
         user_dir = os.path.join(self.data_dir, user_id)
         os.makedirs(user_dir, exist_ok=True)
-        return user_dir
+        return os.path.join(user_dir, "state.json")
     
-    def _get_state_path(self, user_id):
-        """Get the path to a user's state file."""
-        return os.path.join(self._get_user_dir(user_id), "state.json")
-    
-    def get_state(self, user_id):
+    def get_state(self, user_id: str) -> str:
         """
         Get the current state for a user.
         
         Args:
-            user_id: Discord user ID
+            user_id (str): User ID
             
         Returns:
-            str: The current state
+            str: Current state
         """
         # Check cache first
-        if user_id in self.states:
-            return self.states[user_id]
+        if user_id in self.states_cache:
+            return self.states_cache[user_id]
         
-        # Check file
+        # Load from disk
         state_path = self._get_state_path(user_id)
-        if os.path.exists(state_path):
-            try:
-                with open(state_path, 'r') as f:
-                    state_data = json.load(f)
-                    state = state_data.get("current_state", "introduction")
-                    metadata = state_data.get("metadata", {})
-                    
-                    self.states[user_id] = state
-                    self.metadata[user_id] = metadata
-                    return state
-            except (json.JSONDecodeError, IOError) as e:
-                print(f"Error loading state for {user_id}: {e}")
         
-        # Default to introduction
-        self.states[user_id] = "introduction"
-        self.metadata[user_id] = {}
-        self.save_state(user_id, "introduction")
-        return "introduction"
+        try:
+            if os.path.exists(state_path):
+                with open(state_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                
+                # Cache state and metadata
+                self.states_cache[user_id] = data.get("state", "menu")
+                self.metadata_cache[user_id] = data.get("metadata", {})
+                
+                return self.states_cache[user_id]
+            else:
+                # Initialize with default state
+                self.states_cache[user_id] = "menu"
+                self.metadata_cache[user_id] = {}
+                self._save_state(user_id)
+                return "menu"
+        except Exception as e:
+            logger.error(f"Error loading state for {user_id}: {e}")
+            # Return default state on error
+            return "menu"
     
-    def get_state_metadata(self, user_id, key=None, default=None):
+    def set_state(self, user_id: str, state: str) -> None:
+        """
+        Set the state for a user.
+        
+        Args:
+            user_id (str): User ID
+            state (str): New state
+        """
+        # Update cache
+        self.states_cache[user_id] = state
+        
+        # Make sure metadata exists
+        if user_id not in self.metadata_cache:
+            self.metadata_cache[user_id] = {}
+        
+        # Save to disk
+        self._save_state(user_id)
+        
+        logger.info(f"User {user_id} state set to: {state}")
+    
+    def get_state_metadata(self, user_id: str) -> Dict[str, Any]:
         """
         Get metadata for a user's state.
         
         Args:
-            user_id: Discord user ID
-            key: Optional key to get specific metadata
-            default: Default value if key not found
+            user_id (str): User ID
             
         Returns:
-            The metadata value or default
+            Dict: State metadata
         """
-        if user_id not in self.metadata:
-            # Load the state to populate metadata
+        # Make sure state is loaded
+        if user_id not in self.states_cache:
             self.get_state(user_id)
         
-        if key is None:
-            return self.metadata.get(user_id, {})
-        
-        return self.metadata.get(user_id, {}).get(key, default)
+        # Return metadata from cache
+        return self.metadata_cache.get(user_id, {})
     
-    def save_state(self, user_id, state, metadata=None):
-        """
-        Save the state for a user.
-        
-        Args:
-            user_id: Discord user ID
-            state: State to save
-            metadata: Optional metadata to save with the state
-            
-        Returns:
-            bool: Success or failure
-        """
-        # Update cache
-        self.states[user_id] = state
-        
-        # Update metadata
-        if metadata:
-            if user_id not in self.metadata:
-                self.metadata[user_id] = {}
-            self.metadata[user_id].update(metadata)
-        
-        # Save to file
-        state_path = self._get_state_path(user_id)
-        state_data = {
-            "user_id": user_id,
-            "current_state": state,
-            "metadata": self.metadata.get(user_id, {}),
-            "last_updated": datetime.now().isoformat()
-        }
-        
-        try:
-            with open(state_path, 'w') as f:
-                json.dump(state_data, f, indent=2)
-            return True
-        except IOError as e:
-            print(f"Error saving state for {user_id}: {e}")
-            return False
-    
-    def transition_to(self, user_id, new_state, metadata=None):
-        """
-        Transition a user to a new state.
-        
-        Args:
-            user_id: Discord user ID
-            new_state: New state to transition to
-            metadata: Optional metadata to save with the state
-            
-        Returns:
-            bool: Success or failure
-        """
-        # Get current state for logging transitions
-        current_state = self.get_state(user_id)
-        
-        # Log the transition
-        print(f"State transition for user {user_id}: {current_state} -> {new_state}")
-        
-        return self.save_state(user_id, new_state, metadata)
-    
-    def update_state_metadata(self, user_id, updates):
+    def update_state_metadata(self, user_id: str, metadata_update: Dict[str, Any]) -> None:
         """
         Update metadata for a user's state.
         
         Args:
-            user_id: Discord user ID
-            updates: Dictionary of metadata updates
-            
-        Returns:
-            bool: Success or failure
+            user_id (str): User ID
+            metadata_update (Dict): Metadata updates
         """
-        # Get current state to ensure metadata is loaded
-        current_state = self.get_state(user_id)
+        # Make sure state is loaded
+        if user_id not in self.states_cache:
+            self.get_state(user_id)
+        
+        # Initialize metadata if not exists
+        if user_id not in self.metadata_cache:
+            self.metadata_cache[user_id] = {}
         
         # Update metadata
-        if user_id not in self.metadata:
-            self.metadata[user_id] = {}
-        self.metadata[user_id].update(updates)
+        self.metadata_cache[user_id].update(metadata_update)
         
-        # Save state with updated metadata
-        return self.save_state(user_id, current_state)
+        # Save to disk
+        self._save_state(user_id)
     
-    def update_state_after_message(self, user_id, event_type):
+    def clear_state_metadata(self, user_id: str) -> None:
         """
-        Update state based on an event. This is a simple implementation -
-        in a real system, you might use more complex logic.
+        Clear metadata for a user's state.
         
         Args:
-            user_id: Discord user ID
-            event_type: Type of event that occurred
+            user_id (str): User ID
+        """
+        # Clear metadata
+        self.metadata_cache[user_id] = {}
+        
+        # Save to disk
+        self._save_state(user_id)
+    
+    def _save_state(self, user_id: str) -> None:
+        """
+        Save state to disk.
+        
+        Args:
+            user_id (str): User ID
+        """
+        state_path = self._get_state_path(user_id)
+        
+        # Make sure caches are initialized
+        if user_id not in self.states_cache:
+            self.states_cache[user_id] = "menu"
+        if user_id not in self.metadata_cache:
+            self.metadata_cache[user_id] = {}
+        
+        # Prepare data
+        data = {
+            "state": self.states_cache[user_id],
+            "metadata": self.metadata_cache[user_id]
+        }
+        
+        try:
+            with open(state_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            logger.error(f"Error saving state for {user_id}: {e}")
+    
+    def get_all_users_in_state(self, state: str) -> list:
+        """
+        Get all users that are in a specific state.
+        
+        Args:
+            state (str): State to check
             
         Returns:
-            bool: Whether the state was changed
+            list: List of user IDs
         """
-        current_state = self.get_state(user_id)
+        result = []
         
-        # Simple state transitions
-        if event_type == "start_adventure" and current_state != "adventure":
-            return self.transition_to(user_id, "adventure")
-        elif event_type == "create_character" and current_state != "character_creation":
-            return self.transition_to(user_id, "character_creation")
-        elif event_type == "character_created" and current_state == "character_creation":
-            return self.transition_to(user_id, "menu")
-        elif event_type == "adventure_ended" and current_state == "adventure":
-            return self.transition_to(user_id, "menu")
+        # Check cache for quick matches
+        for user_id, cached_state in self.states_cache.items():
+            if cached_state == state:
+                result.append(user_id)
         
-        # No state change
-        return False
-    
-    def get_available_states(self):
-        """
-        Get a list of available states.
+        # Check disk for any users not in cache
+        try:
+            for user_dir in os.listdir(self.data_dir):
+                # Skip if not a directory
+                if not os.path.isdir(os.path.join(self.data_dir, user_dir)):
+                    continue
+                
+                # Skip if already in result
+                if user_dir in result:
+                    continue
+                
+                # Check state
+                state_path = os.path.join(self.data_dir, user_dir, "state.json")
+                if os.path.exists(state_path):
+                    try:
+                        with open(state_path, 'r', encoding='utf-8') as f:
+                            data = json.load(f)
+                        
+                        if data.get("state") == state:
+                            result.append(user_dir)
+                    except Exception:
+                        # Skip if error reading state
+                        pass
+        except Exception as e:
+            logger.error(f"Error listing users in state {state}: {e}")
         
-        Returns:
-            list: List of available states
-        """
-        return [
-            "introduction",
-            "menu",
-            "character_creation",
-            "adventure",
-            "combat",
-            "dialogue",
-            "inventory",
-            "quest_log"
-        ]
+        return result

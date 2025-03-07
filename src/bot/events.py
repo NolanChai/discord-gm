@@ -1,17 +1,31 @@
-"""Event handlers for Discord events."""
+"""
+Event handlers for Discord events.
+
+This module provides handlers for various Discord events
+like message receiving, reactions, etc.
+"""
 
 import asyncio
 import json
+import random
+import math
+import re
 from datetime import datetime, timedelta
 from discord.ext import tasks
 
 from src.bot.commands import handle_message, process_character_creation_response
+from src.utils.message_delay import delay_manager
 
-# Dictionary to track user inactivity
+# Threshold for user inactivity (in minutes)
 INACTIVITY_THRESHOLD_MINUTES = 15
 
 async def register_events(bot):
-    """Register all event handlers for the bot."""
+    """
+    Register all event handlers for the bot.
+    
+    Args:
+        bot: Discord bot instance
+    """
     
     @bot.event
     async def on_ready():
@@ -22,7 +36,12 @@ async def register_events(bot):
     
     @bot.event
     async def on_message(message):
-        """Called when a message is received."""
+        """
+        Called when a message is received.
+        
+        Args:
+            message: Discord message
+        """
         # Process commands first (like !status, !profile)
         await bot.process_commands(message)
         
@@ -40,7 +59,9 @@ async def register_events(bot):
         bot.memory_manager.add_to_short_term(user_id, "user", content)
         
         # Check if we need to trim and summarize memory
-        bot.memory_manager.trim_and_summarize_if_needed(user_id, bot.profile_manager, bot.llm_client)
+        bot.memory_manager.trim_and_summarize_if_needed(
+            user_id, bot.profile_manager, bot.llm_client
+        )
         
         # Get current state
         state = bot.state_manager.get_state(user_id)
@@ -60,7 +81,12 @@ async def register_events(bot):
     
     @bot.event
     async def on_member_join(member):
-        """Called when a new member joins the server."""
+        """
+        Called when a new member joins the server.
+        
+        Args:
+            member: Discord member
+        """
         user_id = str(member.id)
         username = member.display_name
         
@@ -73,7 +99,7 @@ async def register_events(bot):
         # Send welcome message
         try:
             welcome_message = (
-                f"Welcome, {member.mention}! I am Lachesis, an ancient guide with millennia of experience. "
+                f"Welcome, {member.mention}! I am Lachesis, one of the three Fates who spin the threads of destiny. "
                 f"I can help you create a character and embark on adventures. "
                 f"Type `!character` to create your character or `!help` to see what I can do."
             )
@@ -96,7 +122,13 @@ async def register_events(bot):
     
     @bot.event
     async def on_reaction_add(reaction, user):
-        """Called when a reaction is added to a message."""
+        """
+        Called when a reaction is added to a message.
+        
+        Args:
+            reaction: Discord reaction
+            user: Discord user
+        """
         # Ignore bot's own reactions
         if user.bot:
             return
@@ -141,11 +173,74 @@ async def register_events(bot):
                         print(f"Error reminding inactive user {user_id}: {e}")
 
 async def handle_regular_message(bot, message, user_id, content):
-    """Handle a regular message in default/menu state."""
+    """
+    Handle a regular message in default/menu state.
+    
+    Args:
+        bot: Discord bot instance
+        message: Discord message
+        user_id (str): User ID
+        content (str): Message content
+    """
     channel = message.channel
     
+    print(f"\n[DEBUG] === RECEIVED MESSAGE ===")
+    print(f"[DEBUG] User: {user_id}, Content: '{content}'")
+    
     # Store the channel ID for future reference
-    bot.state_manager.update_state_metadata(user_id, {"last_channel_id": str(channel.id)})
+    bot.state_manager.update_state_metadata(
+        user_id, {"last_channel_id": str(channel.id)}
+    )
+    
+    # Direct trigger words - immediately execute corresponding functions
+    # This ensures critical functions work even if LLM doesn't output proper JSON
+    content_lower = content.lower().strip()
+    print(f"[DEBUG] Checking direct triggers against: '{content_lower}'")
+    
+    # Check for adventure keywords
+    adventure_keywords = ["adventure", "quest", "journey"]
+    if any(keyword in content_lower for keyword in adventure_keywords):
+        print(f"[DEBUG] ❗ KEYWORD OVERRIDE: User mentioned adventure keywords")
+        print(f"[DEBUG] Response does not contain function call - forcing start_adventure")
+        await bot.function_dispatcher.dispatch(
+            {"name": "start_adventure", "args": {}},
+            user_id=user_id,
+            message=message,
+            bot=bot
+        )
+        return
+    
+    # Check for character keywords
+    character_keywords = ["character", "create character"]
+    if any(keyword in content_lower for keyword in character_keywords):
+        print(f"[DEBUG] ❗ KEYWORD OVERRIDE: User mentioned character keywords")
+        print(f"[DEBUG] Response does not contain function call - forcing create_character")
+        await bot.function_dispatcher.dispatch(
+            {"name": "create_character", "args": {}},
+            user_id=user_id,
+            message=message,
+            bot=bot
+        )
+        return
+    
+    print(f"[DEBUG] ❌ No character triggers matched")
+    
+    # Check for profile keywords
+    profile_triggers = ["profile", "show profile", "display profile", "character sheet", "stats"]
+    for trigger in profile_triggers:
+        if trigger in content_lower:
+            print(f"[DEBUG] ✅ DIRECT TRIGGER MATCHED: '{trigger}' in '{content_lower}'")
+            print(f"[DEBUG] Dispatching display_profile function directly")
+            # Directly dispatch to profile function
+            await bot.function_dispatcher.dispatch(
+                {"name": "display_profile", "args": {}},
+                user_id=user_id,
+                message=message,
+                bot=bot
+            )
+            return
+    
+    print(f"[DEBUG] ❌ No profile triggers matched")
     
     # Build prompt based on user state
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -156,30 +251,102 @@ async def handle_regular_message(bot, message, user_id, content):
     memories = profile.get("long_term_memories", [])
     memories_text = "\n".join([f"- {m.get('summary', '')}" for m in memories])
     
-    # Define available functions
-    available_functions = bot.function_dispatcher.get_function_descriptions()
+    # Define available functions with clear examples
+    function_descriptions = (
+        "CRITICAL FUNCTION INSTRUCTIONS - READ CAREFULLY:\n\n"
+        "When ANY of these exact phrases or close variations appear in the user's message, you MUST respond ONLY with the corresponding function call JSON, no other text:\n\n"
+        
+        "1. For phrases like: 'adventure', 'start adventure', 'begin an adventure', 'let's adventure', 'quest', 'journey'\n"
+        "   RESPOND ONLY WITH: {\"name\": \"start_adventure\", \"args\": {}}\n\n"
+        
+        "2. For phrases like: 'character', 'create character', 'make character', 'new character'\n"
+        "   RESPOND ONLY WITH: {\"name\": \"create_character\", \"args\": {}}\n\n"
+        
+        "3. For phrases like: 'profile', 'show profile', 'character sheet', 'stats'\n"
+        "   RESPOND ONLY WITH: {\"name\": \"display_profile\", \"args\": {}}\n\n"
+        
+        "4. For phrases like: 'update character', 'change name', 'set class', 'modify stats'\n"
+        "   RESPOND ONLY WITH: {\"name\": \"update_character\", \"args\": {\"field\": \"[field]\", \"value\": \"[value]\"}}\n\n"
+        
+        "EXAMPLES:\n"
+        "User: 'I want an adventure'\n"
+        "You: {\"name\": \"start_adventure\", \"args\": {}}\n\n"
+        
+        "User: 'Let's make a character'\n"
+        "You: {\"name\": \"create_character\", \"args\": {}}\n\n"
+        
+        "User: 'Show my profile'\n"
+        "You: {\"name\": \"display_profile\", \"args\": {}}\n\n"
+        
+        "IMPORTANT: DO NOT respond conversationally about adventures, characters, etc. - CALL THE FUNCTION INSTEAD"
+    )
     
     # Check if user has been introduced
     introduced = profile.get("introduced", False)
     
     # Get the appropriate system prompt
     system_instructions = (
-        f"You are Lachesis, an ancient, somber, and introspective guide with millennia of experience. "
-        f"Today's date/time: {current_time}.\n\n"
-        "When replying, split your answer into multiple messages if needed.\n"
-        "Do not include any function call markers in your plain text reply. "
-        "If a function call is needed, output it enclosed in <|function_call|> and <|end_function_call|>.\n\n"
-        f"User's Character Sheet:\n{json.dumps(profile.get('character_sheet', {}), indent=2)}\n\n"
-        f"Dynamic Attributes:\n{json.dumps(profile.get('dynamic_attributes', {}), indent=2)}\n\n"
-        f"Relevant Memories:\n{memories_text}\n\n"
-        f"{available_functions}\n\n"
-        "If a user's message implies an action (for example, starting a game or updating their character), "
-        "output a JSON function call. Otherwise, produce plain-text messages."
+        f"You are Lachesis, one of the three Fates from ancient mythology. As a divine weaver of destiny, "
+        f"you measure and determine the length of the thread of life. You speak with the authority of a deity who has "
+        f"witnessed countless lifetimes and shaped the course of history. Today's date/time: {current_time}.\n\n"
+        
+        f"CHARACTER PERSONA:\n"
+        f"- You embody ancient divine power and wisdom, speaking in a commanding but intriguing tone\n"
+        f"- You refer to mortals' lives as threads in the grand tapestry of fate\n"
+        f"- You are primarily a NARRATOR and GUIDE for adventures, not a counselor\n"
+        f"- You use vivid, evocative language to describe scenes and settings\n"
+        f"- You ALWAYS encourage users toward adventure and action rather than introspection\n"
+        f"- You occasionally make subtle references to your divine nature and ability to see threads of fate\n\n"
+        
+        f"MESSAGING STYLE:\n"
+        f"- Keep messages concise and impactful - avoid walls of text\n"
+        f"- Split lengthy responses into multiple messages naturally\n"
+        f"- Use dynamic pacing with shorter messages for tension and longer ones for description\n"
+        f"- Write with vivid, sensory language that creates strong imagery\n\n"
+    )
+    
+    # Add character sheet if available
+    character_sheet = profile.get("character_sheet", {})
+    if character_sheet:
+        system_instructions += f"User's Character Sheet:\n{json.dumps(character_sheet, indent=2)}\n\n"
+    
+    # Add dynamic attributes if available
+    dynamic_attributes = profile.get("dynamic_attributes", {})
+    if dynamic_attributes:
+        system_instructions += f"Dynamic Attributes:\n{json.dumps(dynamic_attributes, indent=2)}\n\n"
+    
+    # Add memories if available
+    if memories_text:
+        system_instructions += f"Relevant Memories:\n{memories_text}\n\n"
+    
+    # Add function descriptions
+    system_instructions += f"{function_descriptions}\n\n"
+    
+    system_instructions += (
+        "FUNCTION CALL RULES:\n"
+        "1. NEVER explain or discuss adventures, characters, profiles - CALL THE FUNCTION INSTEAD.\n"
+        "2. If user mentions 'adventure', ALWAYS call start_adventure function, not a conversation.\n"
+        "3. If user mentions 'character', ALWAYS call create_character function, not a conversation.\n"
+        "4. If user mentions 'profile', ALWAYS call display_profile function, not a conversation.\n"
+        "5. Output ONLY the JSON for function calls - NO descriptive text before or after.\n"
     )
     
     # If the user has not been introduced, include a note about introduction
     if not introduced:
-        system_instructions += "\n\nThis is your first interaction with this user. Introduce yourself briefly."
+        system_instructions += (
+            "\n\nThis is your first interaction with this user. Introduce yourself as a powerful deity "
+            "who guides adventures and weaves the threads of fate. Be dramatic and compelling in your introduction. "
+            "After introducing yourself, IMMEDIATELY encourage them to embark on an adventure or create a character, "
+            "presenting these as exciting opportunities to have their story woven into the tapestry of fate."
+        )
+    else:
+        # If they've been introduced, tell Lachesis not to re-introduce herself if pinged
+        if message.content.strip() == f"<@{bot.user.id}>" or "@Lachesis" in message.content:
+            system_instructions += (
+                "\n\nThe user has just pinged you. DO NOT introduce yourself again. "
+                "Instead, acknowledge their call in a deity-like manner and encourage them "
+                "toward adventure or action. Suggest they start an adventure if they haven't yet."
+            )
     
     # Construct the full prompt with message history
     prompt = f"<|im_start|>system\n{system_instructions}\n<|im_end|>\n"
@@ -188,12 +355,45 @@ async def handle_regular_message(bot, message, user_id, content):
     prompt += "<|im_start|>assistant\n"
     
     try:
+        # Show typing indicator while generating response
+        print(f"[DEBUG] Generating LLM response...")
         async with channel.typing():
             response = await bot.llm_client.generate_response(prompt)
         
-        # Check for function calls
-        function_call = bot.function_dispatcher.extract_function_call(response)
+        # Log the response for debugging
+        print(f"[DEBUG] LLM Response first 150 chars: {response[:150].replace(chr(10), ' ')}")
+        
+        # Check for function calls - first see if the entire response is a JSON object
+        function_call = None
+        clean_response = response.strip()
+        
+        # If the response looks like just JSON, try to parse it directly
+        if clean_response.startswith('{') and clean_response.endswith('}'):
+            try:
+                print(f"[DEBUG] Attempting direct JSON parse")
+                potential_call = json.loads(clean_response)
+                print(f"[DEBUG] JSON parsed successfully: {potential_call}")
+                if "name" in potential_call and "args" in potential_call:
+                    function_call = potential_call
+                    print(f"[DEBUG] ✅ Valid function call found via direct JSON: {function_call}")
+                else:
+                    print(f"[DEBUG] ❌ JSON parsed but missing name/args: {potential_call}")
+            except json.JSONDecodeError as e:
+                print(f"[DEBUG] ❌ JSON parse failed: {e}")
+        else:
+            print(f"[DEBUG] Response is not a JSON object")
+        
+        # If no function call found via direct JSON, try extraction methods
+        if not function_call:
+            print(f"[DEBUG] Attempting function call extraction")
+            function_call = bot.function_dispatcher.extract_function_call(response)
+            if function_call:
+                print(f"[DEBUG] ✅ Function call extracted: {function_call}")
+            else:
+                print(f"[DEBUG] ❌ No function call could be extracted")
+        
         if function_call:
+            print(f"[DEBUG] Executing function: {function_call['name']} with args: {function_call['args']}")
             await bot.function_dispatcher.dispatch(
                 function_call,
                 user_id=user_id,
@@ -201,7 +401,20 @@ async def handle_regular_message(bot, message, user_id, content):
                 bot=bot
             )
         else:
+            # Strict keyword override for adventure
+            if "adventure" in content_lower and "adventure" not in response.lower():
+                print(f"[DEBUG] ❗ KEYWORD OVERRIDE: User mentioned 'adventure' but response doesn't")
+                print(f"[DEBUG] Forcing start_adventure function call")
+                await bot.function_dispatcher.dispatch(
+                    {"name": "start_adventure", "args": {}},
+                    user_id=user_id,
+                    message=message,
+                    bot=bot
+                )
+                return
+            
             # Send regular message response
+            print(f"[DEBUG] Sending regular message response")
             await send_message_in_parts(bot, channel, user_id, response)
             
             # If this is the first time interacting, mark as introduced
@@ -209,13 +422,19 @@ async def handle_regular_message(bot, message, user_id, content):
                 bot.profile_manager.mark_introduction_done(user_id)
     
     except Exception as e:
-        print(f"Error generating response: {e}")
+        print(f"[DEBUG] ❌ ERROR generating response: {e}")
+        print(f"[DEBUG] Error type: {type(e)}")
         await channel.send("Oops, something went wrong. Please try again later.")
 
 async def handle_reaction(bot, reaction, user_id):
-    """Handle a reaction to a bot message."""
-    # This could be extended for interactive menus, decision points, etc.
-    # For now, just log the reaction
+    """
+    Handle a reaction to a bot message.
+    
+    Args:
+        bot: Discord bot instance
+        reaction: Discord reaction
+        user_id (str): User ID
+    """
     emoji = reaction.emoji
     message_id = reaction.message.id
     channel_id = reaction.message.channel.id
@@ -267,7 +486,15 @@ async def handle_reaction(bot, reaction, user_id):
                             await present_options(bot, user_id, channel, options)
 
 async def present_options(bot, user_id, channel, options):
-    """Present adventure options to the user."""
+    """
+    Present adventure options to the user.
+    
+    Args:
+        bot: Discord bot instance
+        user_id (str): User ID
+        channel: Discord channel
+        options (list): Options to present
+    """
     # Create a message with the options
     options_text = "**What will you do?**\n\n"
     choices = {}
@@ -296,11 +523,54 @@ async def present_options(bot, user_id, channel, options):
     })
 
 async def send_message_in_parts(bot, channel, user_id, full_text):
-    """Split and send a message in parts if it's too long."""
+    """
+    Split and send a message in parts with natural typing and timing delays.
+    
+    Args:
+        bot: Discord bot instance
+        channel: Discord channel
+        user_id (str): User ID
+        full_text (str): Full message text
+    """
     # Split on two or more newlines to separate into messages
-    segments = [seg.strip() for seg in full_text.split("\n\n") if seg.strip()]
-    for seg in segments:
-        bot.memory_manager.add_to_short_term(user_id, "assistant", seg)
-        await channel.send(seg)
-        # Small delay to make messages appear more natural
-        await asyncio.sleep(0.5)
+    segments = [seg.strip() for seg in re.split(r'\n\n+', full_text) if seg.strip()]
+    previous_segment = None
+    
+    for i, segment in enumerate(segments):
+        # Add to memory before sending
+        bot.memory_manager.add_to_short_term(user_id, "assistant", segment)
+        
+        # If this isn't the first segment, delay between messages
+        if i > 0:
+            await delay_manager.delay_between_segments(segment, previous_segment)
+        
+        # Simulate typing before sending the message
+        # Get a typing time based on message length (longer messages = longer typing)
+        typing_time = min(1.0 + (len(segment) / delay_manager.typing_speed), 10.0)
+        
+        # Ensure minimum typing time and add variation
+        typing_time = max(1.0, typing_time * random.uniform(0.8, 1.2))
+        
+        # Show typing indicator and wait
+        async with channel.typing():
+            # For longer messages, periodically refresh the typing indicator
+            if typing_time > 5.0:
+                for _ in range(math.ceil(typing_time / 5.0)):
+                    await asyncio.sleep(min(5.0, typing_time))
+                    typing_time -= 5.0
+                    if typing_time <= 0:
+                        break
+            else:
+                await asyncio.sleep(typing_time)
+        
+        # Send the message
+        await channel.send(segment)
+        
+        # Add a substantial delay between segments (2-4 seconds)
+        # This makes multiple messages appear more naturally spaced out
+        if i < len(segments) - 1:
+            delay_time = random.uniform(2.0, 4.0)
+            await asyncio.sleep(delay_time)
+        
+        # Store for context in the next iteration
+        previous_segment = segment

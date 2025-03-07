@@ -1,158 +1,207 @@
-import os
-import aiohttp
-import json
+"""
+LLM Client for Lachesis bot.
+
+This module handles communication with the Language Model API.
+"""
+
 import asyncio
-import time
+import json
+import logging
+import aiohttp
+import backoff
+from typing import Dict, Any, Optional
+
+logger = logging.getLogger("lachesis.llm")
 
 class LLMClient:
-    """
-    Client for interacting with Language Model APIs.
-    """
-    def __init__(self, api_base="http://localhost:1234/v1", model_name="YourModelNameHere"):
+    """Client for interacting with LLM APIs."""
+    
+    def __init__(self, api_base: str, model_name: str, max_tokens: int = 1024, temperature: float = 0.7):
         """
         Initialize the LLM client.
         
         Args:
-            api_base: API base URL
-            model_name: Model name to use
+            api_base (str): Base URL for the API
+            model_name (str): Name of the model to use
+            max_tokens (int): Maximum number of tokens to generate
+            temperature (float): Sampling temperature
         """
         self.api_base = api_base
         self.model_name = model_name
-        self.api_key = os.getenv("OPENAI_API_KEY", "None")  # Not used for local LM Studio
-        self.temperature = float(os.getenv("TEMPERATURE", 0.8))
-        self.top_p = float(os.getenv("TOP_P", 0.95))
-        self.max_retries = 3
-        self.retry_delay = 1  # seconds
-        self.stop_strings = [os.getenv("STOP_STRINGS", "<|im_end|>")]
+        self.max_tokens = max_tokens
+        self.temperature = temperature
+        self.session = None
     
-    async def generate_response(self, prompt, max_tokens=300):
+    async def ensure_session(self):
+        """Ensure an aiohttp session exists."""
+        if self.session is None or self.session.closed:
+            self.session = aiohttp.ClientSession()
+    
+    async def close(self):
+        """Close the aiohttp session."""
+        if self.session and not self.session.closed:
+            await self.session.close()
+            self.session = None
+    
+    @backoff.on_exception(
+        backoff.expo,
+        (aiohttp.ClientError, asyncio.TimeoutError),
+        max_tries=3,
+        max_time=30
+    )
+    async def generate_response(self, prompt: str, stream: bool = False) -> str:
         """
         Generate a response from the LLM.
         
         Args:
-            prompt: The prompt to send to the model
-            max_tokens: Maximum number of tokens to generate
+            prompt (str): The prompt to send to the LLM
+            stream (bool): Whether to stream the response
             
         Returns:
-            str: Generated text response
+            str: The generated text response
         """
-        headers = {
-            "Content-Type": "application/json"
-        }
+        await self.ensure_session()
         
-        if self.api_key != "None":
-            headers["Authorization"] = f"Bearer {self.api_key}"
-        
+        # Prepare the request payload
         payload = {
             "model": self.model_name,
             "prompt": prompt,
+            "max_tokens": self.max_tokens,
             "temperature": self.temperature,
-            "max_tokens": max_tokens,
-            "top_p": self.top_p,
-            "stop": self.stop_strings
+            "stream": stream
         }
         
-        for attempt in range(self.max_retries):
-            try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(
-                        f"{self.api_base}/completions",
-                        headers=headers,
-                        json=payload
-                    ) as response:
-                        if response.status != 200:
-                            error_text = await response.text()
-                            print(f"Error from LLM API (attempt {attempt+1}/{self.max_retries}): {response.status} - {error_text}")
-                            
-                            if attempt < self.max_retries - 1:
-                                await asyncio.sleep(self.retry_delay * (2 ** attempt))  # Exponential backoff
-                                continue
-                            else:
-                                raise Exception(f"Error from LLM API: {response.status} - {error_text}")
-                        
-                        result = await response.json()
-                        
-                        if "choices" not in result or not result["choices"]:
-                            raise Exception("Invalid response format from LLM API")
-                        
-                        return result["choices"][0]["text"].strip()
-            
-            except aiohttp.ClientError as e:
-                print(f"Network error (attempt {attempt+1}/{self.max_retries}): {e}")
-                if attempt < self.max_retries - 1:
-                    await asyncio.sleep(self.retry_delay * (2 ** attempt))  # Exponential backoff
+        try:
+            # Send the request
+            async with self.session.post(
+                f"{self.api_base}/completions",
+                json=payload,
+                timeout=30
+            ) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    logger.error(f"LLM API error: {response.status} - {error_text}")
+                    return f"Error generating response: {response.status}"
+                
+                if stream:
+                    # For streaming, just return the generator directly
+                    return self._handle_streaming_response(response)
                 else:
-                    raise Exception(f"Failed to connect to LLM API after {self.max_retries} attempts: {e}")
+                    data = await response.json()
+                    return data.get("choices", [{}])[0].get("text", "")
+        
+        except Exception as e:
+            logger.error(f"Error in LLM request: {str(e)}")
+            return f"Error: {str(e)}"
     
-    async def summarize_text(self, text, max_tokens=100):
+    async def _handle_streaming_response(self, response):
+        """Handle a streaming response from the LLM API."""
+        result = []
+        async for line in response.content:
+            if line:
+                try:
+                    line_text = line.decode('utf-8').strip()
+                    if line_text.startswith('data: '):
+                        data_str = line_text[6:]  # Remove 'data: ' prefix
+                        if data_str != '[DONE]':
+                            data = json.loads(data_str)
+                            token = data.get('choices', [{}])[0].get('text', '')
+                            if token:
+                                result.append(token)
+                                yield token
+                except Exception as e:
+                    logger.error(f"Error parsing streaming response: {e}")
+        
+        # Cannot use return with value in an async generator
+        # Final yield with the complete result
+        if result:
+            yield ''.join(result)
+            
+    async def collect_streaming_response(self, streaming_gen):
         """
-        Summarize a piece of text.
+        Collect all tokens from a streaming response.
         
         Args:
-            text: The text to summarize
-            max_tokens: Maximum length of summary
+            streaming_gen: Async generator of response tokens
             
         Returns:
-            str: Summary of the text
+            str: Complete response text
         """
-        prompt = f"<|im_start|>system\nPlease summarize the following text concisely.\n<|im_end|>\n<|im_start|>user\n{text}\n<|im_end|>\n<|im_start|>assistant\n"
-        return await self.generate_response(prompt, max_tokens)
+        result = []
+        async for token in streaming_gen:
+            result.append(token)
+        return ''.join(result)
     
-    async def generate_character_stats(self, user_responses, max_tokens=200):
+    async def generate_function_call(self, prompt: str) -> Dict[str, Any]:
         """
-        Generate character stats based on user responses.
+        Generate a function call from the LLM.
         
         Args:
-            user_responses: Dictionary of question:answer pairs from character creation
-            max_tokens: Maximum length of response
+            prompt (str): The prompt to send to the LLM
             
         Returns:
-            dict: Generated character stats
+            Dict: A dictionary with function name and arguments
         """
-        # Format the user responses
-        responses_text = "\n".join([f"Q: {q}\nA: {a}" for q, a in user_responses.items()])
+        await self.ensure_session()
         
-        prompt = (
-            "<|im_start|>system\n"
-            "Based on the user's responses during character creation, generate appropriate "
-            "D&D-style character stats. Respond with valid JSON that includes name, race, class, "
-            "stats (strength, dexterity, constitution, intelligence, wisdom, charisma), "
-            "and a brief backstory. Ensure all stats are between 8 and 18, with an emphasis on "
-            "stats that match the character concept.\n"
-            "<|im_end|>\n"
-            f"<|im_start|>user\n{responses_text}\n<|im_end|>\n"
-            "<|im_start|>assistant\n"
+        # Adjust the prompt to guide the model to return a function call
+        function_prompt = (
+            f"{prompt}\n\n"
+            "Output ONLY a valid JSON object with 'name' and 'args' fields for the function call."
         )
         
-        response = await self.generate_response(prompt, max_tokens)
-        
-        # Extract JSON
         try:
-            # Try to find JSON-like content within the response
-            response = response.strip()
-            if response.startswith("```json"):
-                response = response[7:]
-            if response.endswith("```"):
-                response = response[:-3]
+            response_text = await self.generate_response(function_prompt)
             
-            # Clean the response to make it valid JSON
-            response = response.strip()
+            # Parse the JSON response
+            try:
+                # Extract JSON object if it's embedded in other text
+                json_str = self._extract_json(response_text)
+                if json_str:
+                    function_call = json.loads(json_str)
+                    if "name" in function_call and "args" in function_call:
+                        return function_call
+            except json.JSONDecodeError:
+                logger.warning(f"Failed to parse function call JSON: {response_text}")
             
-            return json.loads(response)
-        except json.JSONDecodeError:
-            # Fallback to a basic character if JSON parsing fails
-            print(f"Failed to parse character stats JSON: {response}")
+            # If parsing fails, return a default response
             return {
-                "name": "Unknown Adventurer",
-                "race": "Human",
-                "class": "Fighter",
-                "stats": {
-                    "strength": 14,
-                    "dexterity": 12,
-                    "constitution": 13,
-                    "intelligence": 10,
-                    "wisdom": 11,
-                    "charisma": 10
-                },
-                "backstory": "A mysterious wanderer with a forgotten past."
+                "name": "respond_normally",
+                "args": {"text": response_text}
             }
+        
+        except Exception as e:
+            logger.error(f"Error in function call generation: {str(e)}")
+            return {
+                "name": "respond_normally",
+                "args": {"text": f"Error: {str(e)}"}
+            }
+    
+    def _extract_json(self, text: str) -> Optional[str]:
+        """
+        Extract a JSON object from text that might contain other content.
+        
+        Args:
+            text (str): Text that might contain a JSON object
+            
+        Returns:
+            Optional[str]: The extracted JSON string, or None if not found
+        """
+        # Try to find JSON-like content between curly braces
+        start_idx = text.find('{')
+        if start_idx == -1:
+            return None
+        
+        # Track nesting level of curly braces to find the matching end brace
+        nesting = 0
+        for i in range(start_idx, len(text)):
+            if text[i] == '{':
+                nesting += 1
+            elif text[i] == '}':
+                nesting -= 1
+                if nesting == 0:
+                    # Found the matching closing brace
+                    return text[start_idx:i+1]
+        
+        # No properly matched JSON found
+        return None

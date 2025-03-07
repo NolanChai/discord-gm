@@ -6,7 +6,10 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "aiohttp>=3.11.13",
+    "backoff>=2.2.1",
     "discord-py>=2.5.2",
     "openai==0.28.1",
+    "pydantic>=2.10.6",
+    "python-dateutil>=2.9.0.post0",
     "python-dotenv>=1.0.1",
 ]
